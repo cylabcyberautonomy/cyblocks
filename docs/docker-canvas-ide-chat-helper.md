@@ -264,7 +264,8 @@ Do implement:
 - A plain center board.
 - Drag from palette to board.
 - Drag existing blocks around.
-- A temporary `Download JSON` button that downloads currently visible blocks as `blocks.json`.
+- Visual block connectors between blocks.
+- A temporary `Download JSON` button that downloads currently visible blocks and connections as `blocks.json`.
 
 Do not implement yet:
 
@@ -275,6 +276,5 @@ Do not implement yet:
 - Secrets handling.
 - Cyber-specific labels.
 - Equifax-specific names in the UI.
-- Connecting blocks.
 - Front/middle/back board lanes.
 - Inspector and outline panels.

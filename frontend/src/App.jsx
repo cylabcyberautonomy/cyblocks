@@ -3,7 +3,7 @@ import { FileDown, RefreshCcw, X } from "lucide-react";
 
 const BLOCK_WIDTH = 132;
 const BLOCK_HEIGHT = 56;
-const STORAGE_KEY = "simple-block-board-state-v2";
+const STORAGE_KEY = "simple-block-board-state-v3";
 
 const BLOCK_TYPES = [
   { id: "red", label: "block.red", color: "#ff8a7a" },
@@ -15,29 +15,40 @@ const BLOCK_TYPES = [
 
 const BLOCK_TYPE_MAP = Object.fromEntries(BLOCK_TYPES.map((type) => [type.id, type]));
 
-function loadBlocks() {
+function loadCanvas() {
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
-    const parsed = saved ? JSON.parse(saved) : [];
-    return Array.isArray(parsed) ? parsed : [];
+    const parsed = saved ? JSON.parse(saved) : null;
+
+    if (Array.isArray(parsed)) {
+      return { blocks: parsed, connections: [] };
+    }
+
+    return {
+      blocks: Array.isArray(parsed?.blocks) ? parsed.blocks : [],
+      connections: Array.isArray(parsed?.connections) ? parsed.connections : []
+    };
   } catch {
-    return [];
+    return { blocks: [], connections: [] };
   }
 }
 
 function App() {
   const boardRef = useRef(null);
   const blockDragRef = useRef(null);
+  const connectorDragRef = useRef(null);
   const paletteDragRef = useRef(null);
-  const [blocks, setBlocks] = useState(loadBlocks);
+  const [blocks, setBlocks] = useState(() => loadCanvas().blocks);
+  const [connections, setConnections] = useState(() => loadCanvas().connections);
   const [boardSize, setBoardSize] = useState({ width: 900, height: 520 });
+  const [connectorDrag, setConnectorDrag] = useState(null);
   const [paletteDrag, setPaletteDrag] = useState(null);
   const [dropActive, setDropActive] = useState(false);
   const [status, setStatus] = useState("Ready");
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(blocks));
-  }, [blocks]);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ blocks, connections }));
+  }, [blocks, connections]);
 
   useEffect(() => {
     const board = boardRef.current;
@@ -115,6 +126,17 @@ function App() {
         );
       }
 
+      if (connectorDragRef.current) {
+        const point = getBoardPoint(event);
+        const drag = {
+          ...connectorDragRef.current,
+          end: point
+        };
+
+        connectorDragRef.current = drag;
+        setConnectorDrag(drag);
+      }
+
       if (paletteDragRef.current) {
         const drag = {
           ...paletteDragRef.current,
@@ -130,6 +152,39 @@ function App() {
 
     function handlePointerUp(event) {
       blockDragRef.current = null;
+
+      if (connectorDragRef.current) {
+        const sourceId = connectorDragRef.current.from;
+        const target = document.elementFromPoint(event.clientX, event.clientY);
+        const targetId =
+          target?.closest("[data-input-port]")?.getAttribute("data-input-port") ||
+          target?.closest("[data-block-id]")?.getAttribute("data-block-id");
+
+        connectorDragRef.current = null;
+        setConnectorDrag(null);
+
+        if (targetId && targetId !== sourceId) {
+          setConnections((current) => {
+            const exists = current.some(
+              (connection) => connection.from === sourceId && connection.to === targetId
+            );
+
+            if (exists) {
+              return current;
+            }
+
+            setStatus("Connected blocks");
+            return [
+              ...current,
+              {
+                id: `connection-${Date.now()}-${Math.round(Math.random() * 999)}`,
+                from: sourceId,
+                to: targetId
+              }
+            ];
+          });
+        }
+      }
 
       if (paletteDragRef.current) {
         const typeId = paletteDragRef.current.typeId;
@@ -190,8 +245,32 @@ function App() {
     };
   }
 
+  function beginConnectorDrag(event, block) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const start = {
+      x: block.x + BLOCK_WIDTH,
+      y: block.y + BLOCK_HEIGHT / 2
+    };
+    const drag = {
+      from: block.id,
+      start,
+      end: start
+    };
+
+    connectorDragRef.current = drag;
+    setConnectorDrag(drag);
+    setStatus(`Connecting from ${block.label}`);
+  }
+
   function clearBoard() {
     setBlocks([]);
+    setConnections([]);
     setStatus("Cleared board");
   }
 
@@ -204,17 +283,37 @@ function App() {
       x: 80 + index * 170,
       y: 90 + index * 70
     }));
+    const sampleConnections = [
+      {
+        id: "sample-red-to-yellow",
+        from: "sample-red",
+        to: "sample-yellow"
+      },
+      {
+        id: "sample-yellow-to-green",
+        from: "sample-yellow",
+        to: "sample-green"
+      }
+    ];
 
     setBlocks(sample);
+    setConnections(sampleConnections);
     setStatus("Loaded sample blocks");
   }
 
   function downloadBlocksJson() {
+    const visibleBlockIds = new Set();
     const visibleBlocks = blocks
       .filter((block) => {
         const right = block.x + BLOCK_WIDTH;
         const bottom = block.y + BLOCK_HEIGHT;
-        return block.x < boardSize.width && block.y < boardSize.height && right > 0 && bottom > 0;
+        const isVisible = block.x < boardSize.width && block.y < boardSize.height && right > 0 && bottom > 0;
+
+        if (isVisible) {
+          visibleBlockIds.add(block.id);
+        }
+
+        return isVisible;
       })
       .map((block, index) => ({
         id: block.id,
@@ -231,13 +330,18 @@ function App() {
           height: BLOCK_HEIGHT
         }
       }));
+    const visibleConnections = connections.filter(
+      (connection) => visibleBlockIds.has(connection.from) && visibleBlockIds.has(connection.to)
+    );
 
     const output = {
       kind: "block-board",
       version: 1,
       compiledAt: new Date().toISOString(),
       blockCount: visibleBlocks.length,
-      blocks: visibleBlocks
+      connectionCount: visibleConnections.length,
+      blocks: visibleBlocks,
+      connections: visibleConnections
     };
 
     const blob = new Blob([`${JSON.stringify(output, null, 2)}\n`], {
@@ -252,7 +356,9 @@ function App() {
     anchor.click();
     anchor.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
-    setStatus(`Downloaded ${visibleBlocks.length} block${visibleBlocks.length === 1 ? "" : "s"} as blocks.json`);
+    setStatus(
+      `Downloaded ${visibleBlocks.length} block${visibleBlocks.length === 1 ? "" : "s"}, ${visibleConnections.length} connection${visibleConnections.length === 1 ? "" : "s"} as blocks.json`
+    );
   }
 
   return (
@@ -300,6 +406,7 @@ function App() {
         <section className="board-panel" aria-label="Canvas board">
           <div className="board-meta">
             <span>{blocks.length} blocks</span>
+            <span>{connections.length} connections</span>
             <span>{status}</span>
           </div>
           <div
@@ -308,12 +415,40 @@ function App() {
             tabIndex={0}
             aria-label="Drag and drop board"
           >
+            <svg
+              className="connection-layer"
+              viewBox={`0 0 ${boardSize.width} ${boardSize.height}`}
+              aria-hidden="true"
+            >
+              {connections.map((connection) => {
+                const from = blocks.find((block) => block.id === connection.from);
+                const to = blocks.find((block) => block.id === connection.to);
+
+                if (!from || !to) {
+                  return null;
+                }
+
+                return (
+                  <path
+                    key={connection.id}
+                    className="connection-path"
+                    d={makeConnectorPath(outputPoint(from), inputPoint(to))}
+                  />
+                );
+              })}
+              {connectorDrag && (
+                <path
+                  className="connection-path connection-path-preview"
+                  d={makeConnectorPath(connectorDrag.start, connectorDrag.end)}
+                />
+              )}
+            </svg>
             <div className="block-layer">
               {blocks.map((block) => (
-                <button
-                  type="button"
+                <div
                   key={block.id}
                   className="block"
+                  data-block-id={block.id}
                   style={{
                     left: block.x,
                     top: block.y,
@@ -321,8 +456,16 @@ function App() {
                   }}
                   onPointerDown={(event) => beginBlockDrag(event, block)}
                 >
-                  {block.label}
-                </button>
+                  <span className="port port-in" data-input-port={block.id} aria-hidden="true" />
+                  <span className="block-label">{block.label}</span>
+                  <button
+                    type="button"
+                    className="port port-out"
+                    data-output-port={block.id}
+                    aria-label={`Connect from ${block.label}`}
+                    onPointerDown={(event) => beginConnectorDrag(event, block)}
+                  />
+                </div>
               ))}
             </div>
           </div>
@@ -347,6 +490,26 @@ function App() {
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function inputPoint(block) {
+  return {
+    x: block.x,
+    y: block.y + BLOCK_HEIGHT / 2
+  };
+}
+
+function outputPoint(block) {
+  return {
+    x: block.x + BLOCK_WIDTH,
+    y: block.y + BLOCK_HEIGHT / 2
+  };
+}
+
+function makeConnectorPath(from, to) {
+  const distance = Math.max(42, Math.abs(to.x - from.x) * 0.5);
+
+  return `M ${from.x} ${from.y} C ${from.x + distance} ${from.y}, ${to.x - distance} ${to.y}, ${to.x} ${to.y}`;
 }
 
 export default App;
