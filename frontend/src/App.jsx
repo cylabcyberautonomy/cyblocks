@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RefreshCcw, X } from "lucide-react";
+import { FileDown, RefreshCcw, X } from "lucide-react";
 
-const BLOCK_WIDTH = 148;
-const BLOCK_HEIGHT = 72;
-const STORAGE_KEY = "simple-block-board-state";
+const BLOCK_WIDTH = 132;
+const BLOCK_HEIGHT = 56;
+const STORAGE_KEY = "simple-block-board-state-v2";
 
 const BLOCK_TYPES = [
-  { id: "red", label: "Red block", color: "#ff8a7a" },
-  { id: "yellow", label: "Yellow block", color: "#ffd166" },
-  { id: "green", label: "Green block", color: "#74d3ae" },
-  { id: "blue", label: "Blue block", color: "#8fb8ff" },
-  { id: "purple", label: "Purple block", color: "#d7a8ff" }
+  { id: "red", label: "block.red", color: "#ff8a7a" },
+  { id: "yellow", label: "block.yellow", color: "#ffd166" },
+  { id: "green", label: "block.green", color: "#74d3ae" },
+  { id: "blue", label: "block.blue", color: "#8fb8ff" },
+  { id: "purple", label: "block.purple", color: "#d7a8ff" }
 ];
 
 const BLOCK_TYPE_MAP = Object.fromEntries(BLOCK_TYPES.map((type) => [type.id, type]));
@@ -33,6 +33,7 @@ function App() {
   const [boardSize, setBoardSize] = useState({ width: 900, height: 520 });
   const [paletteDrag, setPaletteDrag] = useState(null);
   const [dropActive, setDropActive] = useState(false);
+  const [status, setStatus] = useState("Ready");
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(blocks));
@@ -90,6 +91,7 @@ function App() {
       };
 
       setBlocks((current) => [...current, block]);
+      setStatus(`Added ${type.label}`);
     },
     [boardSize.height, boardSize.width]
   );
@@ -190,6 +192,7 @@ function App() {
 
   function clearBoard() {
     setBlocks([]);
+    setStatus("Cleared board");
   }
 
   function resetBoard() {
@@ -203,6 +206,53 @@ function App() {
     }));
 
     setBlocks(sample);
+    setStatus("Loaded sample blocks");
+  }
+
+  function downloadBlocksJson() {
+    const visibleBlocks = blocks
+      .filter((block) => {
+        const right = block.x + BLOCK_WIDTH;
+        const bottom = block.y + BLOCK_HEIGHT;
+        return block.x < boardSize.width && block.y < boardSize.height && right > 0 && bottom > 0;
+      })
+      .map((block, index) => ({
+        id: block.id,
+        order: index,
+        type: block.type,
+        label: block.label,
+        color: block.color,
+        position: {
+          x: block.x,
+          y: block.y
+        },
+        size: {
+          width: BLOCK_WIDTH,
+          height: BLOCK_HEIGHT
+        }
+      }));
+
+    const output = {
+      kind: "block-board",
+      version: 1,
+      compiledAt: new Date().toISOString(),
+      blockCount: visibleBlocks.length,
+      blocks: visibleBlocks
+    };
+
+    const blob = new Blob([`${JSON.stringify(output, null, 2)}\n`], {
+      type: "application/json"
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+
+    anchor.href = url;
+    anchor.download = "blocks.json";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    setStatus(`Downloaded ${visibleBlocks.length} block${visibleBlocks.length === 1 ? "" : "s"} as blocks.json`);
   }
 
   return (
@@ -216,6 +266,10 @@ function App() {
           <button type="button" onClick={resetBoard}>
             <RefreshCcw size={17} aria-hidden="true" />
             <span>Sample</span>
+          </button>
+          <button type="button" onClick={downloadBlocksJson}>
+            <FileDown size={17} aria-hidden="true" />
+            <span>Download JSON</span>
           </button>
           <button type="button" onClick={clearBoard}>
             <X size={17} aria-hidden="true" />
@@ -244,6 +298,10 @@ function App() {
         </aside>
 
         <section className="board-panel" aria-label="Canvas board">
+          <div className="board-meta">
+            <span>{blocks.length} blocks</span>
+            <span>{status}</span>
+          </div>
           <div
             ref={boardRef}
             className={`board${dropActive ? " is-drop-target" : ""}`}

@@ -264,12 +264,14 @@ Do implement:
 - A plain center board.
 - Drag from palette to board.
 - Drag existing blocks around.
+- A temporary `Download JSON` button that downloads currently visible blocks as `blocks.json`.
 
 Do not implement yet:
 
 - Docker generation.
 - DSL generation.
 - Deployment.
+- A real compiler.
 - Secrets handling.
 - Cyber-specific labels.
 - Equifax-specific names in the UI.
