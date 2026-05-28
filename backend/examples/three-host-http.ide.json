@@ -1,0 +1,96 @@
+{
+  "kind": "block-board",
+  "version": 1,
+  "name": "three-host-http",
+  "blocks": [
+    {
+      "id": "linux-1",
+      "order": 0,
+      "type": "host-small",
+      "label": "host.small",
+      "color": "#ff8a7a",
+      "host": {
+        "hostname": "linux-1",
+        "osImagePath": "docker://nginx:alpine",
+        "ramGb": 1,
+        "storageGb": 8,
+        "externalDrives": []
+      },
+      "position": {
+        "x": 80,
+        "y": 90
+      },
+      "size": {
+        "width": 176,
+        "height": 74
+      }
+    },
+    {
+      "id": "linux-2",
+      "order": 1,
+      "type": "host-small",
+      "label": "host.small",
+      "color": "#ffd166",
+      "host": {
+        "hostname": "linux-2",
+        "osImagePath": "docker://nginx:alpine",
+        "ramGb": 1,
+        "storageGb": 8,
+        "externalDrives": []
+      },
+      "position": {
+        "x": 300,
+        "y": 170
+      },
+      "size": {
+        "width": 176,
+        "height": 74
+      }
+    },
+    {
+      "id": "linux-3",
+      "order": 2,
+      "type": "host-small",
+      "label": "host.small",
+      "color": "#74d3ae",
+      "host": {
+        "hostname": "linux-3",
+        "osImagePath": "docker://nginx:alpine",
+        "ramGb": 1,
+        "storageGb": 8,
+        "externalDrives": []
+      },
+      "position": {
+        "x": 520,
+        "y": 250
+      },
+      "size": {
+        "width": 176,
+        "height": 74
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "linux-1-to-linux-2",
+      "label": "http",
+      "from": "linux-1",
+      "to": "linux-2",
+      "port": "80"
+    },
+    {
+      "id": "linux-2-to-linux-3",
+      "label": "http",
+      "from": "linux-2",
+      "to": "linux-3",
+      "port": "80"
+    },
+    {
+      "id": "linux-1-to-linux-3",
+      "label": "http",
+      "from": "linux-1",
+      "to": "linux-3",
+      "port": "80"
+    }
+  ]
+}
