@@ -28,6 +28,29 @@ button {
   font: inherit;
 }
 
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink);
+  background: #ffffff;
+  font: inherit;
+}
+
+input,
+select {
+  min-height: 30px;
+  padding: 0 8px;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 84px;
+  padding: 8px;
+}
+
 .app-shell {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -102,7 +125,7 @@ h2 {
 
 .workspace {
   display: grid;
-  grid-template-columns: 190px minmax(0, 1fr);
+  grid-template-columns: 190px minmax(0, 1fr) 280px;
   gap: 10px;
   min-height: 0;
   padding: 10px;
@@ -179,6 +202,7 @@ h2 {
   position: absolute;
   inset: 0;
   z-index: 2;
+  pointer-events: none;
 }
 
 .connection-layer {
@@ -187,7 +211,7 @@ h2 {
   z-index: 1;
   width: 100%;
   height: 100%;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .connection-path {
@@ -196,9 +220,33 @@ h2 {
   stroke-width: 2;
 }
 
+.connection-path.is-selected {
+  stroke-width: 3;
+}
+
+.connection-hitbox {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 18;
+  cursor: pointer;
+  pointer-events: stroke;
+}
+
 .connection-path-preview {
   stroke-dasharray: 5 5;
   opacity: 0.65;
+}
+
+.connection-label {
+  fill: var(--code);
+  font-size: 0.68rem;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.connection-text-path {
+  fill: none;
+  stroke: none;
 }
 
 .block {
@@ -214,9 +262,23 @@ h2 {
   font-weight: 800;
   text-align: center;
   overflow-wrap: anywhere;
+  pointer-events: auto;
+}
+
+.block.is-selected {
+  border-color: var(--code);
+  outline: 2px solid var(--code);
+  outline-offset: 2px;
 }
 
 .block-label {
+  font-size: 0.78rem;
+  pointer-events: none;
+}
+
+.block-meta {
+  color: rgba(23, 32, 51, 0.72);
+  font-size: 0.62rem;
   pointer-events: none;
 }
 
@@ -253,6 +315,58 @@ h2 {
   pointer-events: none;
   transform: translate(-50%, -50%);
   opacity: 0.88;
+}
+
+.properties-form {
+  display: grid;
+  gap: 10px;
+}
+
+.properties-form label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.properties-kicker,
+.properties-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.hotkeys-panel {
+  display: grid;
+  gap: 5px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--muted);
+  background: #f8fafc;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.hotkeys-panel strong {
+  color: var(--ink);
+}
+
+.remove-button {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink);
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.remove-button:hover {
+  border-color: var(--code);
+  background: #eef2f7;
 }
 
 button:focus-visible,

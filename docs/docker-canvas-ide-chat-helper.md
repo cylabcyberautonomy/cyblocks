@@ -264,7 +264,9 @@ Do implement:
 - A plain center board.
 - Drag from palette to board.
 - Drag existing blocks around.
+- Host-block attributes for hostname, OS image path, RAM GB, storage GB, and external drive paths.
 - Visual block connectors between blocks.
+- Connector attributes for name and port.
 - A temporary `Download JSON` button that downloads currently visible blocks and connections as `blocks.json`.
 
 Do not implement yet:
