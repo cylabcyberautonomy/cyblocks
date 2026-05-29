@@ -30,6 +30,13 @@ Topology links are visually distinct from service, vulnerability, misconfigurati
 `Download IDE JSON`, `Compile`, and `Deploy` all use the visible board export from `buildVisibleGraph()` in `src/App.jsx`.
 The export keeps block kinds, positions, service metadata, finding metadata, connector kinds, and connector direction.
 
+## Backend Controls
+
+- `Compile` posts the visible board to `POST /api/compile`.
+- `Deploy` posts the visible board to `POST /api/deploy`.
+- `End Deployment` posts the visible board to `POST /api/teardown` and removes only the compiled project.
+- `Quit` posts to `POST /api/quit`, which removes all Cyblocks-owned Docker containers/networks before stopping the frontend and backend dev servers.
+
 ## Local Development
 
 ```bash

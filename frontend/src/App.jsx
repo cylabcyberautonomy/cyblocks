@@ -1156,11 +1156,18 @@ function App() {
         throw new Error(payload.error || `Request failed with ${response.status}`);
       }
 
+      const cleanup = payload.cleanup || {};
+      const removedContainers = cleanup.removedContainers?.length || 0;
+      const removedNetworks = cleanup.removedNetworks?.length || 0;
+      const cleanupMessage = cleanup.error
+        ? `Docker cleanup failed: ${cleanup.error}`
+        : `removed ${removedContainers} Cyblocks container${removedContainers === 1 ? "" : "s"} and ${removedNetworks} network${removedNetworks === 1 ? "" : "s"}`;
+
       setRunState((current) => ({
         ...current,
-        phase: "idle",
-        message: `Quit requested. Backend is stopping and frontend port ${payload.frontendPort} is being released.`,
-        error: null
+        phase: cleanup.error ? "error" : "idle",
+        message: `Quit requested; ${cleanupMessage}. Backend is stopping and frontend port ${payload.frontendPort} is being released.`,
+        error: cleanup.error || null
       }));
       setStatus("Quit requested");
     } catch (error) {

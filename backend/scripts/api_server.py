@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, urlparse
 from backend_common import configure_docker_cli_environment, docker_bin, load_json, run, run_dir, slug, write_json
 from compile_ide_to_intermediate import compile_ide_graph
 from deploy_docker import deploy
-from teardown_docker import teardown
+from teardown_docker import teardown, teardown_all_cyblocks
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -185,6 +185,28 @@ def schedule_quit(server: ThreadingHTTPServer, *, frontend_port: int = DEFAULT_F
     return frontend_pids
 
 
+def cleanup_before_quit() -> dict[str, Any]:
+    try:
+        configure_docker_environment()
+        return teardown_all_cyblocks(docker_bin())
+    except SystemExit as exc:
+        return {
+            "project": "all",
+            "statePaths": [],
+            "removedContainers": [],
+            "removedNetworks": [],
+            "error": str(exc),
+        }
+    except Exception as exc:
+        return {
+            "project": "all",
+            "statePaths": [],
+            "removedContainers": [],
+            "removedNetworks": [],
+            "error": str(exc),
+        }
+
+
 class ApiHandler(BaseHTTPRequestHandler):
     server_version = "CyblocksBackend/0.1"
 
@@ -241,11 +263,13 @@ class ApiHandler(BaseHTTPRequestHandler):
                 return
 
             if self.path == "/api/quit":
+                cleanup = cleanup_before_quit()
                 frontend_pids = schedule_quit(self.server)
                 self.send_json(
                     {
                         "ok": True,
                         "message": "Stopping frontend and backend.",
+                        "cleanup": cleanup,
                         "frontendPort": DEFAULT_FRONTEND_PORT,
                         "frontendPids": frontend_pids,
                     }

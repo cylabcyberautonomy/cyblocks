@@ -10,6 +10,7 @@ This is a prototype deployment target for validating canvas semantics before han
 - CLI status: `backend/scripts/status_docker.py`
 - API deploy: `POST /api/deploy`
 - API teardown: `POST /api/teardown`
+- API quit and cleanup: `POST /api/quit`
 - API status: `GET /api/status?name=<environment>`
 
 ## What Deploy Uses
@@ -40,7 +41,16 @@ python3 backend/scripts/status_docker.py \
 
 python3 backend/scripts/teardown_docker.py \
   backend/generated/vulnerable-hosts.intermediate.json
+
+python3 backend/scripts/teardown_docker.py --all
 ```
+
+## Cleanup Semantics
+
+- `POST /api/deploy` uses replace mode for the compiled board project before creating new containers and networks.
+- `POST /api/teardown` removes the containers and networks for the compiled board project.
+- `POST /api/quit` removes all Cyblocks-owned Docker resources before stopping the frontend and backend dev servers. It deletes containers and networks with the `cyblocks.project` Docker label and also clears leftovers referenced by `backend/runs/*/deployment.json`, which prevents fixed Docker subnets from staying reserved after Quit.
+- `backend/scripts/teardown_docker.py --all` performs the same Docker cleanup without stopping the dev servers.
 
 ## Docker Notes
 

@@ -104,6 +104,9 @@ The frontend posts the visible board to:
 - `POST /api/quit`
 - `GET /api/status?name=three-host-http`
 
+`/api/quit` is intentionally broader than `/api/teardown`: teardown removes resources for the current compiled project, while quit removes every Docker container/network owned by Cyblocks before it stops the local dev servers. That global cleanup frees fixed address spaces left by previous boards.
+The equivalent CLI cleanup is `python3 backend/scripts/teardown_docker.py --all`.
+
 To start from the React frontend instead, load the three-host board, download the `.ide.json` file, then pass that export to the same runner:
 
 ```bash

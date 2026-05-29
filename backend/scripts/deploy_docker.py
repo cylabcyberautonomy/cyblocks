@@ -336,6 +336,8 @@ def verify_connections(
     for connection in environment.get("connections", []):
         if connection.get("kind") == "topology" or "port" not in connection:
             continue
+        if connection["from"] not in hosts or connection["to"] not in hosts:
+            continue
         source = hosts[connection["from"]]
         target = hosts[connection["to"]]
         source_container = container_by_host[source["id"]]
@@ -362,6 +364,8 @@ def verify_connections(
 
     for check in environment.get("serviceChecks", []):
         if any(item["connection"] == check["id"] for item in checks):
+            continue
+        if check["from"] not in hosts or check["to"] not in hosts:
             continue
         source = hosts[check["from"]]
         target = hosts[check["to"]]
