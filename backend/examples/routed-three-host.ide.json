@@ -1,0 +1,111 @@
+{
+  "kind": "block-board",
+  "version": 1,
+  "name": "routed-three-host",
+  "blocks": [
+    {
+      "id": "linux-1",
+      "kind": "host",
+      "type": "host-small",
+      "label": "host.small",
+      "color": "#ff8a7a",
+      "host": {
+        "hostname": "linux-1",
+        "osImagePath": "docker://nginx:alpine",
+        "ramGb": 1,
+        "storageGb": 8,
+        "externalDrives": []
+      },
+      "position": {
+        "x": 92,
+        "y": 80
+      }
+    },
+    {
+      "id": "linux-2",
+      "kind": "host",
+      "type": "host-small",
+      "label": "host.small",
+      "color": "#ffd166",
+      "host": {
+        "hostname": "linux-2",
+        "osImagePath": "docker://nginx:alpine",
+        "ramGb": 1,
+        "storageGb": 8,
+        "externalDrives": []
+      },
+      "position": {
+        "x": 92,
+        "y": 300
+      }
+    },
+    {
+      "id": "linux-3",
+      "kind": "host",
+      "type": "host-small",
+      "label": "host.small",
+      "color": "#74d3ae",
+      "host": {
+        "hostname": "linux-3",
+        "osImagePath": "docker://nginx:alpine",
+        "ramGb": 1,
+        "storageGb": 8,
+        "externalDrives": []
+      },
+      "position": {
+        "x": 520,
+        "y": 300
+      }
+    },
+    {
+      "id": "router-1",
+      "kind": "router",
+      "type": "router",
+      "label": "router",
+      "color": "#f4f7fb",
+      "router": {
+        "name": "router-1",
+        "imagePath": "docker://alpine:latest"
+      },
+      "position": {
+        "x": 320,
+        "y": 190
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "linux-1-to-router-1",
+      "kind": "topology",
+      "label": "subnet.web",
+      "from": "linux-1",
+      "to": "router-1",
+      "port": ""
+    },
+    {
+      "id": "linux-2-to-router-1",
+      "kind": "topology",
+      "label": "subnet.internal",
+      "from": "linux-2",
+      "to": "router-1",
+      "port": ""
+    },
+    {
+      "id": "linux-3-to-router-1",
+      "kind": "topology",
+      "label": "subnet.backend",
+      "from": "linux-3",
+      "to": "router-1",
+      "port": ""
+    }
+  ],
+  "playbooks": [
+    {
+      "name": "wait_for_port",
+      "args": {
+        "host": "linux-1",
+        "port": 80
+      }
+    }
+  ]
+}

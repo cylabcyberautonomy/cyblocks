@@ -4,18 +4,20 @@ import { Activity, Code2, FileDown, RefreshCcw, Rocket, X } from "lucide-react";
 const BLOCK_WIDTH = 132;
 const BLOCK_HEIGHT = 56;
 const API_BASE_URL = import.meta.env.VITE_CYBLOCKS_API_URL || "http://127.0.0.1:8787";
-const DEFAULT_BOARD_NAME = "three-host-http";
+const DEFAULT_BOARD_NAME = "routed-three-host";
 const DEFAULT_OS_IMAGE_PATH = "docker://nginx:alpine";
+const DEFAULT_ROUTER_IMAGE_PATH = "docker://alpine:latest";
 const DEFAULT_CONNECTION_LABEL = "http";
 const DEFAULT_CONNECTION_PORT = "80";
-const STORAGE_KEY = "simple-block-board-state-v5";
+const STORAGE_KEY = "simple-block-board-state-v6";
 
 const BLOCK_TYPES = [
-  { id: "host-small", label: "host.small", color: "#ff8a7a", ramGb: 2, storageGb: 32 },
-  { id: "host-medium", label: "host.medium", color: "#ffd166", ramGb: 4, storageGb: 64 },
-  { id: "host-large", label: "host.large", color: "#74d3ae", ramGb: 8, storageGb: 128 },
-  { id: "host-storage", label: "host.storage", color: "#8fb8ff", ramGb: 4, storageGb: 256 },
-  { id: "host-custom", label: "host.custom", color: "#d7a8ff", ramGb: 4, storageGb: 64 }
+  { id: "host-small", kind: "host", label: "host.small", color: "#ff8a7a", ramGb: 2, storageGb: 32 },
+  { id: "host-medium", kind: "host", label: "host.medium", color: "#ffd166", ramGb: 4, storageGb: 64 },
+  { id: "host-large", kind: "host", label: "host.large", color: "#74d3ae", ramGb: 8, storageGb: 128 },
+  { id: "host-storage", kind: "host", label: "host.storage", color: "#8fb8ff", ramGb: 4, storageGb: 256 },
+  { id: "router", kind: "router", label: "router", color: "#f4f7fb" },
+  { id: "host-custom", kind: "host", label: "host.custom", color: "#d7a8ff", ramGb: 4, storageGb: 64 }
 ];
 
 const PORT_OPTIONS = [
@@ -68,13 +70,37 @@ function createHostDefaults(typeId, index = 1) {
   };
 }
 
+function createRouterDefaults(index = 1) {
+  return {
+    name: `router-${index}`,
+    imagePath: DEFAULT_ROUTER_IMAGE_PATH
+  };
+}
+
 function normalizeBlocks(blocks) {
   return blocks.map((block, index) => {
     const type = BLOCK_TYPE_MAP[block.type] || BLOCK_TYPES[0];
     const defaults = createHostDefaults(type.id, index + 1);
+    const kind = block.kind || block.nodeType || type.kind || "host";
+
+    if (kind === "router") {
+      const routerDefaults = createRouterDefaults(index + 1);
+      return {
+        ...block,
+        kind: "router",
+        type: "router",
+        label: block.label || "router",
+        color: block.color || type.color,
+        router: {
+          name: block.router?.name || block.name || routerDefaults.name,
+          imagePath: block.router?.imagePath || block.router?.osImagePath || routerDefaults.imagePath
+        }
+      };
+    }
 
     return {
       ...block,
+      kind: "host",
       type: type.id,
       label: block.label || type.label,
       color: block.color || type.color,
@@ -94,11 +120,15 @@ function normalizeBlocks(blocks) {
 }
 
 function normalizeConnections(connections) {
-  return connections.map((connection, index) => ({
-    ...connection,
-    label: connection.label || (index === 0 ? DEFAULT_CONNECTION_LABEL : `${DEFAULT_CONNECTION_LABEL}.${index + 1}`),
-    port: String(connection.port || DEFAULT_CONNECTION_PORT)
-  }));
+  return connections.map((connection, index) => {
+    const kind = connection.kind || "service";
+    return {
+      ...connection,
+      kind,
+      label: connection.label || (kind === "topology" ? `link.${index + 1}` : index === 0 ? DEFAULT_CONNECTION_LABEL : `${DEFAULT_CONNECTION_LABEL}.${index + 1}`),
+      port: kind === "topology" ? "" : String(connection.port || DEFAULT_CONNECTION_PORT)
+    };
+  });
 }
 
 function App() {
@@ -179,7 +209,7 @@ function App() {
       if (commandKey && key === "c" && selectedBlock) {
         event.preventDefault();
         copiedBlockRef.current = selectedBlock;
-        setStatus(`Copied ${selectedBlock.host.hostname}`);
+        setStatus(`Copied ${nodeName(selectedBlock)}`);
       }
 
       if (commandKey && key === "v" && copiedBlockRef.current) {
@@ -221,15 +251,21 @@ function App() {
     (typeId, x, y) => {
       const type = BLOCK_TYPE_MAP[typeId] || BLOCK_TYPES[0];
       const nextIndex = blocks.length + 1;
+      const kind = type.kind || "host";
       const block = {
         id: `block-${Date.now()}-${Math.round(Math.random() * 999)}`,
+        kind,
         type: type.id,
         label: type.label,
         color: type.color,
-        host: createHostDefaults(type.id, nextIndex),
         x: clamp(Math.round(x - BLOCK_WIDTH / 2), 8, Math.max(8, boardSize.width - BLOCK_WIDTH - 8)),
         y: clamp(Math.round(y - BLOCK_HEIGHT / 2), 8, Math.max(8, boardSize.height - BLOCK_HEIGHT - 8))
       };
+      if (kind === "router") {
+        block.router = createRouterDefaults(nextIndex);
+      } else {
+        block.host = createHostDefaults(type.id, nextIndex);
+      }
 
       setBlocks((current) => [...current, block]);
       setSelectedBlockId(block.id);
@@ -307,15 +343,23 @@ function App() {
 
             setStatus("Connected blocks");
             const connectionId = `connection-${Date.now()}-${Math.round(Math.random() * 999)}`;
+            const source = blocks.find((block) => block.id === sourceId);
+            const targetBlock = blocks.find((block) => block.id === targetId);
+            const isTopology = blockKind(source) === "router" || blockKind(targetBlock) === "router";
             setSelectedConnectionId(connectionId);
             return [
               ...current,
               {
                 id: connectionId,
-                label: current.length === 0 ? DEFAULT_CONNECTION_LABEL : `${DEFAULT_CONNECTION_LABEL}.${current.length + 1}`,
+                kind: isTopology ? "topology" : "service",
+                label: isTopology
+                  ? `link.${current.length + 1}`
+                  : current.length === 0
+                    ? DEFAULT_CONNECTION_LABEL
+                    : `${DEFAULT_CONNECTION_LABEL}.${current.length + 1}`,
                 from: sourceId,
                 to: targetId,
-                port: DEFAULT_CONNECTION_PORT
+                port: isTopology ? "" : DEFAULT_CONNECTION_PORT
               }
             ];
           });
@@ -347,7 +391,7 @@ function App() {
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
     };
-  }, [addBlockAt, boardSize.height, boardSize.width, getBoardPoint, isPointInsideBoard]);
+  }, [addBlockAt, blocks, boardSize.height, boardSize.width, getBoardPoint, isPointInsideBoard]);
 
   function beginPaletteDrag(event, typeId) {
     if (event.button !== 0) {
@@ -439,6 +483,26 @@ function App() {
     );
   }
 
+  function updateSelectedBlockRouter(patch) {
+    if (!selectedBlock) {
+      return;
+    }
+
+    setBlocks((current) =>
+      current.map((block) =>
+        block.id === selectedBlock.id
+          ? {
+              ...block,
+              router: {
+                ...block.router,
+                ...patch
+              }
+            }
+          : block
+      )
+    );
+  }
+
   function updateSelectedConnection(patch) {
     if (!selectedConnection) {
       return;
@@ -465,7 +529,7 @@ function App() {
     );
     setSelectedBlockId(null);
     setSelectedConnectionId(null);
-    setStatus(`Deleted ${block?.host?.hostname || "block"}`);
+    setStatus(`Deleted ${nodeName(block) || "block"}`);
   }
 
   function deleteConnection(connectionId) {
@@ -483,18 +547,25 @@ function App() {
     const block = {
       ...structuredClone(copiedBlock),
       id: `block-${Date.now()}-${Math.round(Math.random() * 999)}`,
-      host: {
-        ...copiedBlock.host,
-        hostname: `${copiedBlock.host.hostname}-copy`
-      },
       x: clamp(copiedBlock.x + 24, 8, Math.max(8, boardSize.width - BLOCK_WIDTH - 8)),
       y: clamp(copiedBlock.y + 24, 8, Math.max(8, boardSize.height - BLOCK_HEIGHT - 8))
     };
+    if (blockKind(copiedBlock) === "router") {
+      block.router = {
+        ...copiedBlock.router,
+        name: `${copiedBlock.router.name}-copy`
+      };
+    } else {
+      block.host = {
+        ...copiedBlock.host,
+        hostname: `${copiedBlock.host.hostname}-copy`
+      };
+    }
 
     setBlocks((current) => [...current, block]);
     setSelectedBlockId(block.id);
     setSelectedConnectionId(null);
-    setStatus(`Pasted ${block.host.hostname}`);
+    setStatus(`Pasted ${nodeName(block)}`);
   }
 
   function removeSelectedConnection() {
@@ -531,36 +602,54 @@ function App() {
 
         return isVisible;
       })
-      .map((block, index) => ({
-        id: block.id,
-        order: index,
-        type: block.type,
-        label: block.label,
-        color: block.color,
-        host: {
-          hostname: block.host.hostname,
-          osImagePath: block.host.osImagePath,
-          ramGb: block.host.ramGb,
-          storageGb: block.host.storageGb,
-          externalDrives: block.host.externalDrives
-        },
-        position: {
-          x: block.x,
-          y: block.y
-        },
-        size: {
-          width: BLOCK_WIDTH,
-          height: BLOCK_HEIGHT
+      .map((block, index) => {
+        const base = {
+          id: block.id,
+          order: index,
+          kind: blockKind(block),
+          type: block.type,
+          label: block.label,
+          color: block.color,
+          position: {
+            x: block.x,
+            y: block.y
+          },
+          size: {
+            width: BLOCK_WIDTH,
+            height: BLOCK_HEIGHT
+          }
+        };
+
+        if (blockKind(block) === "router") {
+          return {
+            ...base,
+            router: {
+              name: block.router.name,
+              imagePath: block.router.imagePath
+            }
+          };
         }
-      }));
+
+        return {
+          ...base,
+          host: {
+            hostname: block.host.hostname,
+            osImagePath: block.host.osImagePath,
+            ramGb: block.host.ramGb,
+            storageGb: block.host.storageGb,
+            externalDrives: block.host.externalDrives
+          }
+        };
+      });
     const visibleConnections = connections
       .filter((connection) => visibleBlockIds.has(connection.from) && visibleBlockIds.has(connection.to))
       .map((connection) => ({
         id: connection.id,
+        kind: connection.kind || "service",
         label: connection.label,
         from: connection.from,
         to: connection.to,
-        port: connection.port
+        port: connection.kind === "topology" ? "" : connection.port
       }));
 
     return {
@@ -836,7 +925,7 @@ function App() {
                     />
                     <text className="connection-label" dy="-6">
                       <textPath href={`#${connection.id}-path`} startOffset="50%" textAnchor="middle">
-                        {connection.label}:{connection.port}
+                        {connectionLabel(connection)}
                       </textPath>
                     </text>
                   </g>
@@ -853,7 +942,7 @@ function App() {
               {blocks.map((block) => (
                 <div
                   key={block.id}
-                  className={`block${block.id === selectedBlockId ? " is-selected" : ""}`}
+                  className={`block block-${blockKind(block)}${block.id === selectedBlockId ? " is-selected" : ""}`}
                   data-block-id={block.id}
                   style={{
                     left: block.x,
@@ -863,10 +952,8 @@ function App() {
                   onPointerDown={(event) => beginBlockDrag(event, block)}
                 >
                   <span className="port port-in" data-input-port={block.id} aria-hidden="true" />
-                  <span className="block-label">{block.host.hostname}</span>
-                  <span className="block-meta">
-                    {block.host.ramGb}GB RAM / {block.host.storageGb}GB disk
-                  </span>
+                  <span className="block-label">{nodeName(block)}</span>
+                  <span className="block-meta">{blockMeta(block)}</span>
                   <button
                     type="button"
                     className="port port-out"
@@ -882,7 +969,7 @@ function App() {
 
         <aside className="panel properties-panel" aria-label="Properties">
           <h2>Properties</h2>
-          {selectedBlock && (
+          {selectedBlock && blockKind(selectedBlock) === "host" && (
             <form className="properties-form">
               <p className="properties-kicker">{selectedBlock.label}</p>
               <label>
@@ -946,11 +1033,52 @@ function App() {
             </form>
           )}
 
+          {selectedBlock && blockKind(selectedBlock) === "router" && (
+            <form className="properties-form">
+              <p className="properties-kicker">{selectedBlock.label}</p>
+              <label>
+                Router name
+                <input
+                  value={selectedBlock.router.name}
+                  onChange={(event) => updateSelectedBlockRouter({ name: event.target.value })}
+                />
+              </label>
+              <label>
+                Router image path
+                <input
+                  value={selectedBlock.router.imagePath}
+                  onChange={(event) => updateSelectedBlockRouter({ imagePath: event.target.value })}
+                />
+              </label>
+              <div className="hotkeys-panel" aria-label="Available hotkeys">
+                <strong>Hotkeys</strong>
+                <span>Delete: delete router</span>
+                <span>Cmd/Ctrl+C: copy router</span>
+                <span>Cmd/Ctrl+V: paste router</span>
+              </div>
+            </form>
+          )}
+
           {selectedConnection && (
             <form className="properties-form">
               <p className="properties-kicker">
                 {blockName(blocks, selectedConnection.from)} to {blockName(blocks, selectedConnection.to)}
               </p>
+              <label>
+                Connector type
+                <select
+                  value={selectedConnection.kind || "service"}
+                  onChange={(event) =>
+                    updateSelectedConnection({
+                      kind: event.target.value,
+                      port: event.target.value === "topology" ? "" : selectedConnection.port || DEFAULT_CONNECTION_PORT
+                    })
+                  }
+                >
+                  <option value="service">service</option>
+                  <option value="topology">topology</option>
+                </select>
+              </label>
               <label>
                 Connector name
                 <input
@@ -958,24 +1086,26 @@ function App() {
                   onChange={(event) => updateSelectedConnection({ label: event.target.value })}
                 />
               </label>
-              <label>
-                Port
-                <select
-                  value={portSelectValue(selectedConnection.port)}
-                  onChange={(event) =>
-                    updateSelectedConnection({
-                      port: event.target.value === "custom" ? "" : event.target.value
-                    })
-                  }
-                >
-                  {PORT_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {portSelectValue(selectedConnection.port) === "custom" && (
+              {(selectedConnection.kind || "service") !== "topology" && (
+                <label>
+                  Port
+                  <select
+                    value={portSelectValue(selectedConnection.port)}
+                    onChange={(event) =>
+                      updateSelectedConnection({
+                        port: event.target.value === "custom" ? "" : event.target.value
+                      })
+                    }
+                  >
+                    {PORT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {(selectedConnection.kind || "service") !== "topology" && portSelectValue(selectedConnection.port) === "custom" && (
                 <label>
                   Custom port
                   <input
@@ -996,7 +1126,7 @@ function App() {
           )}
 
           {!selectedBlock && !selectedConnection && (
-            <p className="properties-empty">Select a host block or connector.</p>
+            <p className="properties-empty">Select a block or connector.</p>
           )}
 
           <section className={`run-status run-status-${runState.phase}`} aria-label="Run status">
@@ -1015,6 +1145,14 @@ function App() {
                 <div>
                   <dt>Hosts</dt>
                   <dd>{runState.result.intermediate?.hosts?.length || 0}</dd>
+                </div>
+                <div>
+                  <dt>Routers</dt>
+                  <dd>{runState.result.intermediate?.routers?.length || 0}</dd>
+                </div>
+                <div>
+                  <dt>Subnets</dt>
+                  <dd>{runState.result.intermediate?.networks?.length || 0}</dd>
                 </div>
                 <div>
                   <dt>Connectors</dt>
@@ -1067,50 +1205,67 @@ function clamp(value, min, max) {
 
 function createThreeHostCanvas() {
   const hosts = [
-    { id: "linux-1", x: 80, y: 90, color: BLOCK_TYPES[0].color },
-    { id: "linux-2", x: 300, y: 170, color: BLOCK_TYPES[1].color },
-    { id: "linux-3", x: 520, y: 250, color: BLOCK_TYPES[2].color }
+    { id: "linux-1", x: 92, y: 80, color: BLOCK_TYPES[0].color },
+    { id: "linux-2", x: 92, y: 300, color: BLOCK_TYPES[1].color },
+    { id: "linux-3", x: 520, y: 300, color: BLOCK_TYPES[2].color }
   ];
 
   return {
     name: DEFAULT_BOARD_NAME,
-    blocks: hosts.map((host, index) => ({
-      id: host.id,
-      type: "host-small",
-      label: "host.small",
-      color: host.color,
-      host: {
-        hostname: host.id,
-        osImagePath: DEFAULT_OS_IMAGE_PATH,
-        ramGb: 1,
-        storageGb: 8,
-        externalDrives: []
-      },
-      x: host.x,
-      y: host.y,
-      order: index
-    })),
+    blocks: [
+      ...hosts.map((host, index) => ({
+        id: host.id,
+        kind: "host",
+        type: "host-small",
+        label: "host.small",
+        color: host.color,
+        host: {
+          hostname: host.id,
+          osImagePath: DEFAULT_OS_IMAGE_PATH,
+          ramGb: 1,
+          storageGb: 8,
+          externalDrives: []
+        },
+        x: host.x,
+        y: host.y,
+        order: index
+      })),
+      {
+        id: "router-1",
+        kind: "router",
+        type: "router",
+        label: "router",
+        color: BLOCK_TYPE_MAP.router.color,
+        router: createRouterDefaults(1),
+        x: 320,
+        y: 190,
+        order: 3
+      }
+    ],
     connections: [
       {
-        id: "linux-1-to-linux-2",
-        label: DEFAULT_CONNECTION_LABEL,
+        id: "linux-1-to-router-1",
+        kind: "topology",
+        label: "subnet.web",
         from: "linux-1",
-        to: "linux-2",
-        port: DEFAULT_CONNECTION_PORT
+        to: "router-1",
+        port: ""
       },
       {
-        id: "linux-2-to-linux-3",
-        label: DEFAULT_CONNECTION_LABEL,
+        id: "linux-2-to-router-1",
+        kind: "topology",
+        label: "subnet.internal",
         from: "linux-2",
-        to: "linux-3",
-        port: DEFAULT_CONNECTION_PORT
+        to: "router-1",
+        port: ""
       },
       {
-        id: "linux-1-to-linux-3",
-        label: DEFAULT_CONNECTION_LABEL,
-        from: "linux-1",
-        to: "linux-3",
-        port: DEFAULT_CONNECTION_PORT
+        id: "linux-3-to-router-1",
+        kind: "topology",
+        label: "subnet.backend",
+        from: "linux-3",
+        to: "router-1",
+        port: ""
       }
     ]
   };
@@ -1121,9 +1276,34 @@ function numberOrDefault(value, fallback) {
   return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : fallback;
 }
 
+function blockKind(block) {
+  return block?.kind || block?.nodeType || (block?.type === "router" ? "router" : "host");
+}
+
+function nodeName(block) {
+  if (!block) {
+    return "";
+  }
+  return blockKind(block) === "router" ? block.router?.name || block.label : block.host?.hostname || block.label;
+}
+
+function blockMeta(block) {
+  if (blockKind(block) === "router") {
+    return "router / subnet gateway";
+  }
+  return `${block.host.ramGb}GB RAM / ${block.host.storageGb}GB disk`;
+}
+
 function blockName(blocks, blockId) {
   const block = blocks.find((item) => item.id === blockId);
-  return block?.host?.hostname || block?.label || "missing";
+  return nodeName(block) || "missing";
+}
+
+function connectionLabel(connection) {
+  if ((connection.kind || "service") === "topology") {
+    return connection.label;
+  }
+  return `${connection.label}:${connection.port}`;
 }
 
 function portSelectValue(port) {

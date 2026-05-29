@@ -2,10 +2,15 @@
 from __future__ import annotations
 
 import argparse
+from collections import deque
+from itertools import combinations
 from pathlib import Path
 from typing import Any
 
 from backend_common import docker_image_from_os_path, load_json, slug, write_json
+
+DEFAULT_ROUTER_IMAGE = "docker://alpine:latest"
+DEFAULT_HOST_IMAGE = "docker://nginx:alpine"
 
 
 def require_host(block: dict[str, Any]) -> dict[str, Any]:
@@ -13,6 +18,59 @@ def require_host(block: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(host, dict):
         raise ValueError(f"Block {block.get('id')!r} is missing host attributes.")
     return host
+
+
+def block_kind(block: dict[str, Any]) -> str:
+    explicit = str(block.get("kind") or block.get("nodeType") or "").lower()
+    if explicit in {"host", "router"}:
+        return explicit
+    if isinstance(block.get("router"), dict) or str(block.get("type") or "").startswith("router"):
+        return "router"
+    return "host"
+
+
+def block_position(block: dict[str, Any]) -> dict[str, int]:
+    position = block.get("position")
+    if isinstance(position, dict):
+        return {key: int(position[key]) for key in ("x", "y") if key in position}
+    return {key: int(block[key]) for key in ("x", "y") if key in block}
+
+
+def require_router(block: dict[str, Any]) -> dict[str, Any]:
+    router = block.get("router")
+    return router if isinstance(router, dict) else {}
+
+
+def parse_port(value: Any, *, connection_id: str) -> int:
+    port = int(value or 80)
+    if port < 1 or port > 65535:
+        raise ValueError(f"Connection {connection_id}: port must be 1-65535.")
+    return port
+
+
+def normalize_playbooks(playbooks: Any) -> list[dict[str, Any]]:
+    if playbooks is None or playbooks == "":
+        return []
+    if not isinstance(playbooks, list):
+        raise ValueError("IDE graph playbooks must be an array.")
+
+    normalized = []
+    for index, playbook in enumerate(playbooks):
+        if not isinstance(playbook, dict):
+            raise ValueError(f"Playbook {index}: expected object.")
+        name = str(playbook.get("name") or "").strip()
+        if not name:
+            raise ValueError(f"Playbook {index}: missing name.")
+        args = playbook.get("args") or {}
+        if not isinstance(args, dict):
+            raise ValueError(f"Playbook {name}: args must be an object.")
+        normalized.append({"name": name, "args": args})
+    return normalized
+
+
+def subnet_ip(index: int, member_index: int, *, role: str) -> str:
+    host_octet = 2 + member_index if role == "router" else 10 + member_index
+    return f"10.80.{index}.{host_octet}"
 
 
 def compile_ide_graph(source: dict[str, Any], *, name: str | None = None) -> dict[str, Any]:
@@ -24,19 +82,50 @@ def compile_ide_graph(source: dict[str, Any], *, name: str | None = None) -> dic
         raise ValueError("IDE graph connections must be an array.")
 
     env_name = slug(name or source.get("name") or "cyblocks-three-host-http")
+    playbooks = normalize_playbooks(source.get("playbooks", []))
     hosts = []
+    routers = []
+    host_by_id: dict[str, dict[str, Any]] = {}
+    router_by_id: dict[str, dict[str, Any]] = {}
+    node_kinds: dict[str, str] = {}
     known_ids = set()
     known_hostnames = set()
+    known_router_names = set()
 
     for index, block in enumerate(blocks):
         block_id = str(block.get("id") or f"host-{index + 1}")
         if block_id in known_ids:
             raise ValueError(f"Duplicate block id {block_id!r}.")
+        known_ids.add(block_id)
+        kind = block_kind(block)
+        node_kinds[block_id] = kind
+
+        if kind == "router":
+            router = require_router(block)
+            router_name = slug(str(router.get("name") or block.get("label") or block_id))
+            if router_name in known_router_names:
+                raise ValueError(f"Duplicate router name {router_name!r}.")
+            image_path = str(router.get("imagePath") or router.get("osImagePath") or DEFAULT_ROUTER_IMAGE)
+            item = {
+                "id": block_id,
+                "name": router_name,
+                "imagePath": image_path,
+                "dockerImage": docker_image_from_os_path(image_path),
+                "interfaces": [],
+                "subnetIds": [],
+                "ipAddresses": {},
+                "position": block_position(block),
+            }
+            known_router_names.add(router_name)
+            router_by_id[block_id] = item
+            routers.append(item)
+            continue
+
         host = require_host(block)
         hostname = slug(str(host.get("hostname") or block_id))
         if hostname in known_hostnames:
             raise ValueError(f"Duplicate hostname {hostname!r}.")
-        os_image_path = str(host.get("osImagePath") or "docker://nginx:alpine")
+        os_image_path = str(host.get("osImagePath") or DEFAULT_HOST_IMAGE)
         ram_gb = int(host.get("ramGb") or 1)
         storage_gb = int(host.get("storageGb") or 8)
         if ram_gb < 1:
@@ -47,40 +136,85 @@ def compile_ide_graph(source: dict[str, Any], *, name: str | None = None) -> dic
         if not isinstance(external_drives, list):
             raise ValueError(f"Host {hostname}: externalDrives must be a list.")
 
-        known_ids.add(block_id)
+        item = {
+            "id": block_id,
+            "hostname": hostname,
+            "osImagePath": os_image_path,
+            "dockerImage": docker_image_from_os_path(os_image_path),
+            "ramGb": ram_gb,
+            "storageGb": storage_gb,
+            "externalDrives": external_drives,
+            "subnetIds": [],
+            "ipAddresses": {},
+            "position": block_position(block),
+        }
         known_hostnames.add(hostname)
-        hosts.append(
-            {
-                "id": block_id,
-                "hostname": hostname,
-                "osImagePath": os_image_path,
-                "dockerImage": docker_image_from_os_path(os_image_path),
-                "ramGb": ram_gb,
-                "storageGb": storage_gb,
-                "externalDrives": external_drives,
-                "position": block.get("position", {}),
-            }
-        )
+        host_by_id[block_id] = item
+        hosts.append(item)
 
     compiled_connections = []
+    topology_edges = []
+    service_checks = []
     for index, connection in enumerate(connections):
         from_id = str(connection.get("from") or "")
         to_id = str(connection.get("to") or "")
         if from_id not in known_ids or to_id not in known_ids:
             raise ValueError(f"Connection {connection.get('id') or index}: unknown endpoint.")
-        port = int(connection.get("port") or 80)
-        if port < 1 or port > 65535:
-            raise ValueError(f"Connection {connection.get('id') or index}: port must be 1-65535.")
-        compiled_connections.append(
-            {
-                "id": str(connection.get("id") or f"connection-{index + 1}"),
-                "label": str(connection.get("label") or "http"),
-                "from": from_id,
-                "to": to_id,
-                "protocol": "tcp",
-                "port": port,
-            }
-        )
+        connection_id = str(connection.get("id") or f"connection-{index + 1}")
+        endpoint_kinds = {node_kinds[from_id], node_kinds[to_id]}
+        connection_kind = str(connection.get("kind") or "").lower()
+        if connection_kind not in {"service", "topology"}:
+            connection_kind = "topology" if "router" in endpoint_kinds else "service"
+
+        compiled = {
+            "id": connection_id,
+            "kind": connection_kind,
+            "label": str(connection.get("label") or ("link" if connection_kind == "topology" else "http")),
+            "from": from_id,
+            "to": to_id,
+            "endpointKinds": {
+                "from": node_kinds[from_id],
+                "to": node_kinds[to_id],
+            },
+            "protocol": "tcp",
+        }
+        if connection.get("port") not in {None, ""} or connection_kind == "service":
+            compiled["port"] = parse_port(connection.get("port"), connection_id=connection_id)
+
+        compiled_connections.append(compiled)
+        if connection_kind == "topology":
+            topology_edges.append(compiled)
+        elif node_kinds[from_id] == "host" and node_kinds[to_id] == "host":
+            service_checks.append(
+                {
+                    "id": connection_id,
+                    "label": compiled["label"],
+                    "from": from_id,
+                    "to": to_id,
+                    "protocol": "tcp",
+                    "port": compiled["port"],
+                    "generated": False,
+                }
+            )
+
+    networks = build_subnets(env_name, hosts, routers, topology_edges, node_kinds)
+    assign_addresses(networks, host_by_id, router_by_id, node_kinds)
+    subnet_connections = build_subnet_connections(routers)
+    routes = build_routes(networks, hosts, routers)
+
+    if routers and not service_checks and len(hosts) > 1:
+        for source, target in combinations(hosts, 2):
+            service_checks.append(
+                {
+                    "id": f"{source['id']}-to-{target['id']}-http",
+                    "label": "http",
+                    "from": source["id"],
+                    "to": target["id"],
+                    "protocol": "tcp",
+                    "port": 80,
+                    "generated": True,
+                }
+            )
 
     return {
         "kind": "cyblocks.intermediate.environment",
@@ -91,16 +225,247 @@ def compile_ide_graph(source: dict[str, Any], *, name: str | None = None) -> dic
             "target": "docker",
             "project": env_name,
         },
-        "networks": [
+        "networks": networks,
+        "hosts": hosts,
+        "routers": routers,
+        "connections": compiled_connections,
+        "subnetConnections": subnet_connections,
+        "routes": routes,
+        "serviceChecks": service_checks,
+        "playbooks": playbooks,
+        "mhbench": build_mhbench_projection(env_name, networks, hosts, subnet_connections, playbooks),
+    }
+
+
+def build_subnets(
+    env_name: str,
+    hosts: list[dict[str, Any]],
+    routers: list[dict[str, Any]],
+    topology_edges: list[dict[str, Any]],
+    node_kinds: dict[str, str],
+) -> list[dict[str, Any]]:
+    if not routers:
+        return [
             {
                 "id": "default",
                 "name": f"{env_name}-net",
                 "driver": "bridge",
+                "cidr": "10.80.0.0/24",
+                "members": [{"id": host["id"], "kind": "host"} for host in hosts],
+            }
+        ]
+
+    networks = []
+    attached = set()
+    for index, edge in enumerate(topology_edges):
+        subnet_id = slug(f"subnet-{edge['id']}") or f"subnet-{index + 1}"
+        member_ids = [edge["from"], edge["to"]]
+        attached.update(member_ids)
+        networks.append(
+            {
+                "id": subnet_id,
+                "name": f"{env_name}-{subnet_id}",
+                "driver": "bridge",
+                "cidr": f"10.80.{index}.0/24",
+                "sourceConnection": edge["id"],
+                "members": [{"id": member_id, "kind": node_kinds[member_id]} for member_id in member_ids],
+            }
+        )
+
+    isolated = [node for node in [*hosts, *routers] if node["id"] not in attached]
+    for offset, node in enumerate(isolated, start=len(networks)):
+        subnet_id = slug(f"subnet-{node['id']}")
+        networks.append(
+            {
+                "id": subnet_id,
+                "name": f"{env_name}-{subnet_id}",
+                "driver": "bridge",
+                "cidr": f"10.80.{offset}.0/24",
+                "members": [{"id": node["id"], "kind": "router" if node in routers else "host"}],
+            }
+        )
+    return networks
+
+
+def assign_addresses(
+    networks: list[dict[str, Any]],
+    host_by_id: dict[str, dict[str, Any]],
+    router_by_id: dict[str, dict[str, Any]],
+    node_kinds: dict[str, str],
+) -> None:
+    for subnet_index, network in enumerate(networks):
+        role_counts = {"router": 0, "host": 0}
+        for member in network["members"]:
+            role = node_kinds[member["id"]]
+            ip_address = subnet_ip(subnet_index, role_counts[role], role=role)
+            role_counts[role] += 1
+            member["ipAddress"] = ip_address
+            if role == "router":
+                router = router_by_id[member["id"]]
+                router["subnetIds"].append(network["id"])
+                router["ipAddresses"][network["id"]] = ip_address
+                router["interfaces"].append(
+                    {
+                        "subnetId": network["id"],
+                        "network": network["name"],
+                        "cidr": network["cidr"],
+                        "ipAddress": ip_address,
+                    }
+                )
+            else:
+                host = host_by_id[member["id"]]
+                host["subnetIds"].append(network["id"])
+                host["ipAddresses"][network["id"]] = ip_address
+
+    for host in host_by_id.values():
+        host["primarySubnet"] = host["subnetIds"][0] if host["subnetIds"] else None
+    for router in router_by_id.values():
+        router["primarySubnet"] = router["subnetIds"][0] if router["subnetIds"] else None
+
+
+def build_subnet_connections(routers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    subnet_connections = []
+    for router in routers:
+        for left, right in combinations(router["interfaces"], 2):
+            subnet_connections.append(
+                {
+                    "router": router["id"],
+                    "fromSubnet": left["subnetId"],
+                    "toSubnet": right["subnetId"],
+                    "protocol": "any",
+                    "bidirectional": True,
+                }
+            )
+    return subnet_connections
+
+
+def build_routes(
+    networks: list[dict[str, Any]],
+    hosts: list[dict[str, Any]],
+    routers: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    networks_by_id = {network["id"]: network for network in networks}
+    router_ids_by_subnet = {
+        network["id"]: {member["id"] for member in network["members"] if member["kind"] == "router"}
+        for network in networks
+    }
+    subnet_graph: dict[str, set[str]] = {network["id"]: set() for network in networks}
+    router_by_id = {router["id"]: router for router in routers}
+    for router in routers:
+        for left, right in combinations(router["subnetIds"], 2):
+            subnet_graph[left].add(right)
+            subnet_graph[right].add(left)
+
+    routes = []
+    for node in [*hosts, *routers]:
+        source_kind = "router" if node["id"] in router_by_id else "host"
+        for target_subnet in networks_by_id:
+            if target_subnet in node["subnetIds"]:
+                continue
+            path = shortest_subnet_path(subnet_graph, node["subnetIds"], target_subnet)
+            if len(path) < 2:
+                continue
+            gateway = first_gateway(path, node["id"] if source_kind == "router" else None, router_ids_by_subnet)
+            if not gateway:
+                continue
+            gateway_router, gateway_subnet = gateway
+            via = router_by_id[gateway_router]["ipAddresses"][gateway_subnet]
+            routes.append(
+                {
+                    "nodeId": node["id"],
+                    "nodeKind": source_kind,
+                    "toSubnet": target_subnet,
+                    "toCidr": networks_by_id[target_subnet]["cidr"],
+                    "via": via,
+                }
+            )
+    return routes
+
+
+def build_mhbench_projection(
+    env_name: str,
+    networks: list[dict[str, Any]],
+    hosts: list[dict[str, Any]],
+    subnet_connections: list[dict[str, Any]],
+    playbooks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    hosts_by_id = {host["id"]: host for host in hosts}
+    subnets = []
+    for network in networks:
+        subnet_hosts = []
+        for member in network.get("members", []):
+            if member.get("kind") != "host":
+                continue
+            host = hosts_by_id[member["id"]]
+            subnet_hosts.append(
+                {
+                    "name": host["hostname"],
+                    "vm_type": host.get("vmType") or "docker_host",
+                    "flavor": host.get("flavor") or f"{host['ramGb']}gb-{host['storageGb']}gb",
+                    "ip_address": member.get("ipAddress"),
+                }
+            )
+        subnets.append(
+            {
+                "name": network["id"],
+                "cidr": network.get("cidr"),
+                "dns_servers": ["8.8.8.8"],
+                "hosts": subnet_hosts,
+            }
+        )
+
+    return {
+        "name": env_name,
+        "networks": [
+            {
+                "name": f"{env_name}_network",
+                "description": "Cyblocks intermediate projection for MHBench-style topology and playbooks.",
+                "subnets": subnets,
             }
         ],
-        "hosts": hosts,
-        "connections": compiled_connections,
+        "subnet_connections": [
+            {
+                "from_subnet": item["fromSubnet"],
+                "to_subnet": item["toSubnet"],
+                "protocol": None if item.get("protocol") == "any" else item.get("protocol"),
+                "ports": item.get("ports"),
+                "bidirectional": item.get("bidirectional", True),
+            }
+            for item in subnet_connections
+        ],
+        "playbooks": playbooks,
     }
+
+
+def shortest_subnet_path(graph: dict[str, set[str]], starts: list[str], target: str) -> list[str]:
+    queue = deque((start, [start]) for start in starts)
+    seen = set(starts)
+    while queue:
+        current, path = queue.popleft()
+        if current == target:
+            return path
+        for neighbor in sorted(graph.get(current, [])):
+            if neighbor in seen:
+                continue
+            seen.add(neighbor)
+            queue.append((neighbor, [*path, neighbor]))
+    return []
+
+
+def first_gateway(
+    path: list[str],
+    source_router_id: str | None,
+    router_ids_by_subnet: dict[str, set[str]],
+) -> tuple[str, str] | None:
+    for left, right in zip(path, path[1:]):
+        shared_routers = sorted(router_ids_by_subnet[left] & router_ids_by_subnet[right])
+        if not shared_routers:
+            continue
+        router_id = shared_routers[0]
+        if source_router_id and router_id == source_router_id:
+            continue
+        return router_id, left
+    return None
 
 
 def main() -> None:

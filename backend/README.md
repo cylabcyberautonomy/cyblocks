@@ -23,12 +23,20 @@ Cyblocks keeps an intermediate DSL between the IDE and any target backend so the
 
 ## Three-Host HTTP Example
 
-The example starts from [examples/three-host-http.ide.json](examples/three-host-http.ide.json), compiles it to [generated/three-host-http.intermediate.json](generated/three-host-http.intermediate.json), then deploys three `nginx:alpine` containers on one Docker bridge network and checks the HTTP connections declared by the graph.
+The flat example starts from [examples/three-host-http.ide.json](examples/three-host-http.ide.json), compiles it to [generated/three-host-http.intermediate.json](generated/three-host-http.intermediate.json), then deploys three `nginx:alpine` containers on one Docker bridge network and checks the HTTP connections declared by the graph.
+
+The routed example starts from [examples/routed-three-host.ide.json](examples/routed-three-host.ide.json). It creates three host blocks and one router block. Each host-to-router topology connector becomes its own Docker bridge subnet, the router container attaches to all three subnets, and the deployer installs routes so hosts can communicate across the graph.
 
 Run:
 
 ```bash
 backend/scripts/run_three_host_example.sh
+```
+
+Run the routed subnet example:
+
+```bash
+backend/scripts/run_three_host_example.sh backend/examples/routed-three-host.ide.json
 ```
 
 For frontend-driven compile/deploy buttons, start the API server from the repo root:
@@ -80,7 +88,10 @@ python3 backend/scripts/teardown_docker.py \
 ## Notes
 
 - Host `osImagePath` values beginning with `docker://` become Docker image names.
+- Router `imagePath` values beginning with `docker://` become router container image names.
 - The example uses `docker://nginx:alpine` so each host serves HTTP on port `80`.
+- Router blocks compile to first-class `routers[]` entries, topology links compile to Docker bridge subnets, and router interfaces compile to `subnetConnections[]` plus route entries.
+- The compiler also emits an `mhbench` projection with `networks[].subnets[].hosts[]`, `subnet_connections[]`, and `playbooks[]`, matching the MHBench environment shape without changing deployment targets yet.
 - RAM is passed to Docker as a memory limit.
 - Storage GB and external drive paths are preserved in the intermediate DSL; storage quotas are not enforced yet because Docker storage quota support depends on the local storage driver.
 - Connector ports are validated and used for HTTP reachability checks.

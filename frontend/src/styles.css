@@ -300,6 +300,16 @@ h2 {
   pointer-events: auto;
 }
 
+.block-router {
+  border-color: var(--code);
+  border-radius: 999px;
+  background: var(--block-color);
+}
+
+.block-router .block-label {
+  font-size: 0.72rem;
+}
+
 .block.is-selected {
   border-color: var(--code);
   outline: 2px solid var(--code);
