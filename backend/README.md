@@ -149,6 +149,8 @@ python3 backend/scripts/teardown_docker.py \
 - The example uses `docker://nginx:alpine` so each host serves HTTP on port `80`.
 - Router blocks compile to first-class `routers[]` entries, topology links compile to Docker bridge subnets, and router interfaces compile to `subnetConnections[]` plus route entries.
 - Router containers run with Docker's local `--privileged` flag in this prototype so Linux Docker Engine can enable forwarding inside the router network namespace. The deployer verifies `ip_forward=1` before running cross-subnet checks.
+- Router containers also add a best-effort `iptables` masquerade rule. This keeps routed reachability checks working on Linux/WSL Docker bridge networks where non-NAT forwarded packets can time out.
+- Multi-subnet router deploys should report `ip_forward=1 nat=masquerade` in deployment state. If NAT cannot be configured, deploy fails during router setup with a `router NAT setup failed` message.
 - The compiler also emits an `mhbench` projection with `networks[].subnets[].hosts[]`, `subnet_connections[]`, and `playbooks[]`, matching the MHBench environment shape without changing deployment targets yet.
 - Service, CVE, misconfiguration, and access links compile into `services[]`, `vulnerabilities[]`, `serviceFindings[]`, generated `playbooks[]`, and the same MHBench projection.
 - RAM is passed to Docker as a memory limit.

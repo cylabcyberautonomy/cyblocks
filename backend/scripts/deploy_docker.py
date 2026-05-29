@@ -236,7 +236,7 @@ def deploy_router(
             name,
             "sh",
             "-lc",
-            router_forwarding_command(),
+            router_forwarding_command(require_nat=len(interfaces) > 1),
         ],
         log_path=log_path,
         check=True,
@@ -403,9 +403,19 @@ def cidr_netmask(cidr: str) -> str:
     return ".".join(str((mask >> shift) & 0xFF) for shift in (24, 16, 8, 0))
 
 
-def router_forwarding_command() -> str:
+def router_forwarding_command(*, require_nat: bool) -> str:
+    require_nat_value = "1" if require_nat else "0"
     return (
-        "set -eu; "
+        f"set -eu; require_nat={require_nat_value}; "
+        "if ! command -v iptables >/dev/null 2>&1; then "
+        "if command -v apk >/dev/null 2>&1; then "
+        "apk add --no-cache iptables >/tmp/cyblocks-router-iptables.log 2>&1 || true; "
+        "elif command -v apt-get >/dev/null 2>&1; then "
+        "DEBIAN_FRONTEND=noninteractive apt-get update >/tmp/cyblocks-router-iptables.log 2>&1 "
+        "&& DEBIAN_FRONTEND=noninteractive apt-get install -y iptables >>/tmp/cyblocks-router-iptables.log 2>&1 "
+        "|| true; "
+        "fi; "
+        "fi; "
         "if [ \"$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo 0)\" != \"1\" ]; then "
         "sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true; "
         "fi; "
@@ -413,12 +423,35 @@ def router_forwarding_command() -> str:
         "[ -e \"$setting\" ] || continue; "
         "(echo 0 > \"$setting\") 2>/dev/null || true; "
         "done; "
+        "if command -v iptables >/dev/null 2>&1; then "
+        "iptables -P FORWARD ACCEPT >/dev/null 2>&1 || true; "
+        "iptables -C FORWARD -j ACCEPT >/dev/null 2>&1 || iptables -A FORWARD -j ACCEPT >/dev/null 2>&1 || true; "
+        "iptables -t nat -C POSTROUTING -j MASQUERADE >/dev/null 2>&1 "
+        "|| iptables -t nat -A POSTROUTING -j MASQUERADE >/dev/null 2>&1 || true; "
+        "fi; "
         "forwarding=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo 0); "
         "if [ \"$forwarding\" != \"1\" ]; then "
         "echo 'router IP forwarding is disabled; Docker did not apply net.ipv4.ip_forward=1' >&2; "
         "exit 1; "
         "fi; "
-        "echo ip_forward=$forwarding"
+        "if [ \"$require_nat\" = \"1\" ]; then "
+        "if ! command -v iptables >/dev/null 2>&1; then "
+        "echo 'router NAT setup failed: iptables is not available in the router container' >&2; "
+        "exit 1; "
+        "fi; "
+        "if ! iptables -t nat -C POSTROUTING -j MASQUERADE >/dev/null 2>&1; then "
+        "echo 'router NAT setup failed: MASQUERADE rule was not installed' >&2; "
+        "exit 1; "
+        "fi; "
+        "echo ip_forward=$forwarding nat=masquerade; "
+        "else "
+        "if command -v iptables >/dev/null 2>&1 "
+        "&& iptables -t nat -C POSTROUTING -j MASQUERADE >/dev/null 2>&1; then "
+        "echo ip_forward=$forwarding nat=masquerade; "
+        "else "
+        "echo ip_forward=$forwarding nat=not-required; "
+        "fi; "
+        "fi"
     )
 
 
@@ -433,6 +466,10 @@ def install_route_command(cidr: str, via: str, network: str, netmask: str) -> st
     )
     return (
         f"set -u; {assignments}; "
+        "for setting in /proc/sys/net/ipv4/conf/*/rp_filter; do "
+        "[ -e \"$setting\" ] || continue; "
+        "(echo 0 > \"$setting\") 2>/dev/null || true; "
+        "done; "
         "if command -v ip >/dev/null 2>&1; then "
         "if ip route replace \"$cidr\" via \"$via\" "
         "&& ip route show \"$cidr\" | grep -F \"via $via\" >/dev/null; then "
