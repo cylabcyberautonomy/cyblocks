@@ -58,15 +58,16 @@ To start from the React frontend instead, load the three-host board, download th
 backend/scripts/run_three_host_example.sh ~/Downloads/three-host-http.ide.json
 ```
 
-The example runner defaults to Colima's Docker Engine socket at `~/.colima/default/docker.sock` when neither `DOCKER_HOST` nor `DOCKER_CONTEXT` is set. It also uses an isolated Docker config under `backend/runs/docker-config` for the public `nginx:alpine` pull, which avoids depending on a desktop credential helper.
+The example runner uses the Docker CLI exactly like a normal Linux shell when neither `DOCKER_HOST` nor `DOCKER_CONTEXT` is set. On Linux, that means Docker Engine's default socket such as `/var/run/docker.sock` is used. For rootless Docker, it will use `$XDG_RUNTIME_DIR/docker.sock` when that socket exists and the default rootful socket does not.
 
-If Colima is not running, start the CLI engine first:
+On Linux, start Docker Engine and verify that your user can talk to it before running deploys:
 
 ```bash
-PATH="/opt/homebrew/bin:$PATH" colima start --cpu 2 --memory 4 --disk 20
+sudo systemctl start docker
+docker info
 ```
 
-If `docker` is not on `PATH`, the scripts also check common macOS locations such as `/opt/homebrew/bin/docker` and `/usr/local/bin/docker`.
+The runner also uses an isolated Docker config under `backend/runs/docker-config` for public image pulls, which avoids depending on desktop credential helpers. On macOS, if neither `DOCKER_HOST` nor `DOCKER_CONTEXT` is set and Colima's socket exists at `~/.colima/default/docker.sock`, the scripts use that socket as a fallback. If `docker` is not on `PATH`, the Python scripts also check common macOS locations such as `/opt/homebrew/bin/docker` and `/usr/local/bin/docker`.
 
 Useful individual commands:
 

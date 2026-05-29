@@ -3,13 +3,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from backend_common import DEFAULT_RUNS_DIR, docker_bin, load_json, run, run_dir, slug, write_json
+from backend_common import configure_docker_cli_environment, docker_bin, load_json, run, run_dir, slug, write_json
 from compile_ide_to_intermediate import compile_ide_graph
 from deploy_docker import deploy
 from teardown_docker import teardown
@@ -21,17 +20,7 @@ GENERATED_DIR = Path(__file__).resolve().parents[1] / "generated"
 
 
 def configure_docker_environment() -> None:
-    os.environ["PATH"] = f"/opt/homebrew/bin:/usr/local/bin:{os.environ.get('PATH', '')}"
-    os.environ.setdefault("DOCKER_CONFIG", str(DEFAULT_RUNS_DIR / "docker-config"))
-
-    docker_config = Path(os.environ["DOCKER_CONFIG"])
-    docker_config.mkdir(parents=True, exist_ok=True)
-    config_path = docker_config / "config.json"
-    if not config_path.exists():
-        config_path.write_text('{ "auths": {} }\n')
-
-    if not os.environ.get("DOCKER_HOST") and not os.environ.get("DOCKER_CONTEXT"):
-        os.environ["DOCKER_HOST"] = f"unix://{Path.home()}/.colima/default/docker.sock"
+    configure_docker_cli_environment()
 
 
 def compile_source(source: dict[str, Any]) -> dict[str, Any]:

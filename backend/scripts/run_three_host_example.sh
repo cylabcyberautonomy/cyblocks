@@ -9,10 +9,19 @@ IDE_STEM="${IDE_STEM%.ide}"
 INTERMEDIATE_JSON="${CYBLOCKS_INTERMEDIATE_JSON:-$ROOT/backend/generated/$IDE_STEM.intermediate.json}"
 EXAMPLE_DOCKER_CONFIG="$ROOT/backend/runs/docker-config"
 
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+if [[ -d /opt/homebrew/bin ]]; then
+  export PATH="/opt/homebrew/bin:$PATH"
+fi
+if [[ -d /usr/local/bin ]]; then
+  export PATH="/usr/local/bin:$PATH"
+fi
 export DOCKER_CONFIG="${DOCKER_CONFIG:-$EXAMPLE_DOCKER_CONFIG}"
 if [[ -z "${DOCKER_HOST:-}" && -z "${DOCKER_CONTEXT:-}" ]]; then
-  export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
+  if [[ "$(uname -s)" == "Darwin" && -S "$HOME/.colima/default/docker.sock" ]]; then
+    export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
+  elif [[ "$(uname -s)" == "Linux" && -n "${XDG_RUNTIME_DIR:-}" && -S "$XDG_RUNTIME_DIR/docker.sock" && ! -S /var/run/docker.sock ]]; then
+    export DOCKER_HOST="unix://$XDG_RUNTIME_DIR/docker.sock"
+  fi
 fi
 
 mkdir -p "$DOCKER_CONFIG"

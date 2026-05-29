@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -12,6 +13,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_RUNS_DIR = REPO_ROOT / "backend" / "runs"
+MACOS_DOCKER_PATHS = ["/opt/homebrew/bin", "/usr/local/bin"]
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -47,8 +49,37 @@ def docker_bin(explicit: str | None = None) -> str:
         if candidate and Path(candidate).exists():
             return candidate
     raise SystemExit(
-        "Docker CLI was not found. Install Docker/Colima or set DOCKER_BIN to the docker executable."
+        "Docker CLI was not found. Install Docker Engine or set DOCKER_BIN to the docker executable."
     )
+
+
+def configure_docker_cli_environment() -> None:
+    extra_paths = [path for path in MACOS_DOCKER_PATHS if Path(path).exists()]
+    if extra_paths:
+        os.environ["PATH"] = f"{':'.join(extra_paths)}:{os.environ.get('PATH', '')}"
+
+    os.environ.setdefault("DOCKER_CONFIG", str(DEFAULT_RUNS_DIR / "docker-config"))
+    docker_config = Path(os.environ["DOCKER_CONFIG"])
+    docker_config.mkdir(parents=True, exist_ok=True)
+    config_path = docker_config / "config.json"
+    if not config_path.exists():
+        config_path.write_text('{ "auths": {} }\n')
+
+    if os.environ.get("DOCKER_HOST") or os.environ.get("DOCKER_CONTEXT"):
+        return
+
+    system = platform.system().lower()
+    if system == "darwin":
+        colima_socket = Path.home() / ".colima" / "default" / "docker.sock"
+        if colima_socket.exists():
+            os.environ["DOCKER_HOST"] = f"unix://{colima_socket}"
+        return
+
+    if system == "linux":
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+        rootless_socket = Path(runtime_dir) / "docker.sock" if runtime_dir else None
+        if rootless_socket and rootless_socket.exists() and not Path("/var/run/docker.sock").exists():
+            os.environ["DOCKER_HOST"] = f"unix://{rootless_socket}"
 
 
 def run(
@@ -86,7 +117,7 @@ def ensure_docker_ready(docker: str, log_path: Path | None = None) -> None:
         run([docker, "info"], log_path=log_path, capture=True)
     except SystemExit as exc:
         raise SystemExit(
-            "Docker CLI is installed, but the Docker daemon is not reachable. Start Docker Engine, for example with Colima, then retry."
+            "Docker CLI is installed, but the Docker daemon is not reachable. Start Docker Engine and verify `docker info` works, then retry."
         ) from exc
 
 
