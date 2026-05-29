@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlparse
 from backend_common import configure_docker_cli_environment, docker_bin, load_json, run, run_dir, slug, write_json
 from compile_ide_to_intermediate import compile_ide_graph
 from deploy_docker import deploy
+from export_mhbench_spec import export_mhbench_spec
 from teardown_docker import teardown
 
 
@@ -48,10 +49,22 @@ def compile_source(source: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def export_mhbench_source(source: dict[str, Any]) -> dict[str, Any]:
+    result = compile_source(source)
+    spec, mhbench_path = export_mhbench_spec(result["intermediate"])
+
+    return {
+        **result,
+        "mhbenchPath": str(mhbench_path),
+        "mhbench": spec,
+    }
+
+
 def deployment_status(name: str) -> dict[str, Any]:
     project = slug(name)
     state_path = run_dir(project) / "deployment.json"
     intermediate_path = GENERATED_DIR / f"{project}.intermediate.json"
+    mhbench_path = GENERATED_DIR / f"{project}.mhbench.json"
     containers = []
 
     try:
@@ -88,6 +101,8 @@ def deployment_status(name: str) -> dict[str, Any]:
         "state": load_json(state_path) if state_path.exists() else None,
         "intermediatePath": str(intermediate_path),
         "intermediate": load_json(intermediate_path) if intermediate_path.exists() else None,
+        "mhbenchPath": str(mhbench_path),
+        "mhbench": load_json(mhbench_path) if mhbench_path.exists() else None,
         "containers": containers,
     }
 
@@ -214,6 +229,11 @@ class ApiHandler(BaseHTTPRequestHandler):
 
             if self.path == "/api/compile":
                 result = compile_source(source)
+                self.send_json({"ok": True, "result": result})
+                return
+
+            if self.path == "/api/export-mhbench":
+                result = export_mhbench_source(source)
                 self.send_json({"ok": True, "result": result})
                 return
 

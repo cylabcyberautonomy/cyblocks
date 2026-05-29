@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, Code2, FileDown, Power, RefreshCcw, Rocket, Square, X } from "lucide-react";
+import { Activity, Cloud, Code2, FileDown, Power, RefreshCcw, Rocket, Square, X } from "lucide-react";
 
 const BLOCK_WIDTH = 132;
 const BLOCK_HEIGHT = 56;
@@ -9,7 +9,7 @@ const DEFAULT_OS_IMAGE_PATH = "docker://nginx:alpine";
 const DEFAULT_ROUTER_IMAGE_PATH = "docker://alpine:latest";
 const DEFAULT_CONNECTION_LABEL = "http";
 const DEFAULT_CONNECTION_PORT = "80";
-const STORAGE_KEY = "simple-block-board-state-v6";
+const STORAGE_KEY = "simple-block-board-state-v7";
 
 const BLOCK_TYPES = [
   { id: "host-small", kind: "host", label: "host.small", color: "#ff8a7a", ramGb: 2, storageGb: 32 },
@@ -41,7 +41,7 @@ function loadCanvas() {
     const parsed = saved ? JSON.parse(saved) : null;
 
     if (Array.isArray(parsed)) {
-      return { name: fallback.name, blocks: normalizeBlocks(parsed), connections: [] };
+      return { name: fallback.name, blocks: normalizeBlocks(parsed), connections: [], playbooks: [] };
     }
 
     if (!parsed) {
@@ -51,7 +51,8 @@ function loadCanvas() {
     return {
       name: typeof parsed?.name === "string" && parsed.name.trim() ? parsed.name : fallback.name,
       blocks: normalizeBlocks(Array.isArray(parsed?.blocks) ? parsed.blocks : []),
-      connections: normalizeConnections(Array.isArray(parsed?.connections) ? parsed.connections : [])
+      connections: normalizeConnections(Array.isArray(parsed?.connections) ? parsed.connections : []),
+      playbooks: normalizePlaybooks(parsed?.playbooks)
     };
   } catch {
     return fallback;
@@ -131,6 +132,19 @@ function normalizeConnections(connections) {
   });
 }
 
+function normalizePlaybooks(playbooks) {
+  if (!Array.isArray(playbooks)) {
+    return [];
+  }
+
+  return playbooks
+    .filter((playbook) => playbook && typeof playbook === "object" && playbook.name)
+    .map((playbook) => ({
+      name: String(playbook.name),
+      args: playbook.args && typeof playbook.args === "object" ? playbook.args : {}
+    }));
+}
+
 function App() {
   const initialCanvasRef = useRef(null);
   const boardRef = useRef(null);
@@ -144,6 +158,7 @@ function App() {
   const [boardName, setBoardName] = useState(() => initialCanvasRef.current.name);
   const [blocks, setBlocks] = useState(() => initialCanvasRef.current.blocks);
   const [connections, setConnections] = useState(() => initialCanvasRef.current.connections);
+  const [playbooks, setPlaybooks] = useState(() => initialCanvasRef.current.playbooks || []);
   const [boardSize, setBoardSize] = useState({ width: 900, height: 520 });
   const [connectorDrag, setConnectorDrag] = useState(null);
   const [paletteDrag, setPaletteDrag] = useState(null);
@@ -161,11 +176,11 @@ function App() {
   });
   const selectedBlock = blocks.find((block) => block.id === selectedBlockId) || null;
   const selectedConnection = connections.find((connection) => connection.id === selectedConnectionId) || null;
-  const isBackendBusy = ["checking", "compiling", "deploying", "ending", "quitting"].includes(runState.phase);
+  const isBackendBusy = ["checking", "compiling", "deploying", "ending", "exporting", "quitting"].includes(runState.phase);
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ name: boardName, blocks, connections }));
-  }, [boardName, blocks, connections]);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ name: boardName, blocks, connections, playbooks }));
+  }, [boardName, blocks, connections, playbooks]);
 
   useEffect(() => {
     const board = boardRef.current;
@@ -458,6 +473,7 @@ function App() {
   function clearBoard() {
     setBlocks([]);
     setConnections([]);
+    setPlaybooks([]);
     setSelectedBlockId(null);
     setSelectedConnectionId(null);
     setStatus("Cleared board");
@@ -582,6 +598,7 @@ function App() {
     setBoardName(sample.name);
     setBlocks(sample.blocks);
     setConnections(sample.connections);
+    setPlaybooks(sample.playbooks || []);
     setSelectedBlockId(sample.blocks[0]?.id || null);
     setSelectedConnectionId(null);
     setStatus("Loaded three-host graph");
@@ -660,7 +677,8 @@ function App() {
       blockCount: visibleBlocks.length,
       connectionCount: visibleConnections.length,
       blocks: visibleBlocks,
-      connections: visibleConnections
+      connections: visibleConnections,
+      playbooks
     };
   }
 
@@ -741,6 +759,40 @@ function App() {
         error: error.message
       }));
       setStatus("Compile failed");
+    }
+  }
+
+  async function exportMhbenchSpec() {
+    setStatus("Exporting MHBench spec");
+    setRunState((current) => ({
+      ...current,
+      phase: "exporting",
+      message: "Writing MHBench environment JSON...",
+      error: null
+    }));
+
+    try {
+      const payload = await postGraph("/api/export-mhbench");
+      const subnetCount = payload.result.mhbench?.networks?.[0]?.subnets?.length || 0;
+      const playbookCount = payload.result.mhbench?.playbooks?.length || 0;
+
+      setRunState({
+        phase: "compiled",
+        message: `Exported ${payload.result.name} for MHBench; ${subnetCount} subnet${subnetCount === 1 ? "" : "s"}, ${playbookCount} playbook${playbookCount === 1 ? "" : "s"}.`,
+        result: payload.result,
+        deployment: null,
+        containers: [],
+        error: null
+      });
+      setStatus(`Exported MHBench spec for ${payload.result.name}`);
+    } catch (error) {
+      setRunState((current) => ({
+        ...current,
+        phase: "error",
+        message: "MHBench export failed.",
+        error: error.message
+      }));
+      setStatus("MHBench export failed");
     }
   }
 
@@ -917,6 +969,10 @@ function App() {
           <button type="button" onClick={compileBoard} disabled={isBackendBusy}>
             <Code2 size={17} aria-hidden="true" />
             <span>{runState.phase === "compiling" ? "Compiling" : "Compile"}</span>
+          </button>
+          <button type="button" onClick={exportMhbenchSpec} disabled={isBackendBusy}>
+            <Cloud size={17} aria-hidden="true" />
+            <span>{runState.phase === "exporting" ? "Exporting" : "Export MHBench"}</span>
           </button>
           <button type="button" onClick={deployBoard} disabled={isBackendBusy}>
             <Rocket size={17} aria-hidden="true" />
@@ -1232,6 +1288,12 @@ function App() {
                   <dt>Intermediate</dt>
                   <dd>{fileName(runState.result.intermediatePath)}</dd>
                 </div>
+                {runState.result.mhbenchPath && (
+                  <div>
+                    <dt>MHBench</dt>
+                    <dd>{fileName(runState.result.mhbenchPath)}</dd>
+                  </div>
+                )}
                 <div>
                   <dt>Hosts</dt>
                   <dd>{runState.result.intermediate?.hosts?.length || 0}</dd>
@@ -1371,6 +1433,15 @@ function createThreeHostCanvas() {
         from: "linux-3",
         to: "router-1",
         port: ""
+      }
+    ],
+    playbooks: [
+      {
+        name: "wait_for_port",
+        args: {
+          host: "linux-1",
+          port: 80
+        }
       }
     ]
   };

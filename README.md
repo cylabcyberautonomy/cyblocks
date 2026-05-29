@@ -6,9 +6,10 @@ The current prototype flow is:
 
 ```text
 IDE canvas -> intermediate DSL -> local Docker Engine deployment
+                             \-> MHBench/OpenStack environment JSON
 ```
 
-The local Docker deployment is a development bridge. The longer-term target is for the IDE to emit DSLs that can be handed to MHBench/OpenStack environment generation, including the Ansible playbooks used by MHBench specs.
+The local Docker deployment is a development bridge. The `Export MHBench` path writes the same topology as an MHBench-compatible environment JSON with `networks[].subnets[]`, `subnet_connections[]`, hosts, and playbook references. MHBench can then validate/deploy that JSON through its own OpenStack workflow.
 
 ## Quick Start
 
@@ -81,6 +82,7 @@ In the browser:
 
 - `Three Host` loads the routed three-host sample.
 - `Compile` writes the visible canvas to the intermediate DSL.
+- `Export MHBench` writes `backend/generated/<name>.mhbench.json` for MHBench/OpenStack handoff.
 - `Deploy` creates the local Docker containers/networks.
 - `Status` shows compiled subnets and live Docker network attachments.
 - `End Deployment` removes deployed Docker containers and networks.
@@ -99,6 +101,26 @@ Or run the checked-in routed example:
 
 ```bash
 backend/scripts/run_three_host_example.sh backend/examples/routed-three-host.ide.json
+```
+
+Export an MHBench environment JSON manually:
+
+```bash
+python3 backend/scripts/compile_ide_to_intermediate.py \
+  backend/examples/routed-three-host.ide.json \
+  --out backend/generated/routed-three-host.intermediate.json
+
+python3 backend/scripts/export_mhbench_spec.py \
+  backend/generated/routed-three-host.intermediate.json \
+  --out backend/generated/routed-three-host.mhbench.json
+```
+
+If MHBench is checked out next to this repo, you can write directly to its generated environments folder:
+
+```bash
+python3 backend/scripts/export_mhbench_spec.py \
+  backend/generated/routed-three-host.intermediate.json \
+  --mhbench-root ../MHBench
 ```
 
 Stop a deployment manually with:

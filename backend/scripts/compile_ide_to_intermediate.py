@@ -11,6 +11,8 @@ from backend_common import docker_image_from_os_path, load_json, slug, write_jso
 
 DEFAULT_ROUTER_IMAGE = "docker://alpine:latest"
 DEFAULT_HOST_IMAGE = "docker://nginx:alpine"
+DEFAULT_MHBENCH_VM_TYPE = "ubuntu_base_running"
+DEFAULT_MHBENCH_FLAVOR = "m1.small"
 
 
 def require_host(block: dict[str, Any]) -> dict[str, Any]:
@@ -135,12 +137,17 @@ def compile_ide_graph(source: dict[str, Any], *, name: str | None = None) -> dic
         external_drives = host.get("externalDrives") or []
         if not isinstance(external_drives, list):
             raise ValueError(f"Host {hostname}: externalDrives must be a list.")
+        mhbench = host.get("mhbench") if isinstance(host.get("mhbench"), dict) else {}
+        vm_type = str(host.get("vmType") or host.get("mhbenchVmType") or mhbench.get("vmType") or DEFAULT_MHBENCH_VM_TYPE)
+        flavor = str(host.get("flavor") or host.get("openstackFlavor") or mhbench.get("flavor") or DEFAULT_MHBENCH_FLAVOR)
 
         item = {
             "id": block_id,
             "hostname": hostname,
             "osImagePath": os_image_path,
             "dockerImage": docker_image_from_os_path(os_image_path),
+            "vmType": vm_type,
+            "flavor": flavor,
             "ramGb": ram_gb,
             "storageGb": storage_gb,
             "externalDrives": external_drives,
@@ -402,8 +409,8 @@ def build_mhbench_projection(
             subnet_hosts.append(
                 {
                     "name": host["hostname"],
-                    "vm_type": host.get("vmType") or "docker_host",
-                    "flavor": host.get("flavor") or f"{host['ramGb']}gb-{host['storageGb']}gb",
+                    "vm_type": host.get("vmType") or DEFAULT_MHBENCH_VM_TYPE,
+                    "flavor": host.get("flavor") or DEFAULT_MHBENCH_FLAVOR,
                     "ip_address": member.get("ipAddress"),
                 }
             )

@@ -6,9 +6,10 @@ Current flow:
 
 ```text
 IDE graph JSON -> intermediate DSL JSON -> Docker networked containers
+                                  \-> MHBench/OpenStack environment JSON
 ```
 
-This is not the final MHBench/OpenStack compiler. It is a runnable Docker Engine bridge for validating that host blocks, router blocks, subnets, and connectors can become a small environment before the DSL is handed to MHBench-style generation.
+The Docker Engine path is a runnable local bridge for validating that host blocks, router blocks, subnets, and connectors can become a small environment. The MHBench export path writes the handoff artifact MHBench expects before its own OpenStack provision/configure/deploy commands run.
 
 ## MHBench Shape
 
@@ -83,6 +84,7 @@ python3 backend/scripts/api_server.py
 The frontend posts the visible board to:
 
 - `POST /api/compile`
+- `POST /api/export-mhbench`
 - `POST /api/deploy`
 - `POST /api/teardown`
 - `POST /api/quit`
@@ -112,6 +114,14 @@ python3 backend/scripts/compile_ide_to_intermediate.py \
   backend/examples/three-host-http.ide.json \
   --out backend/generated/three-host-http.intermediate.json
 
+python3 backend/scripts/export_mhbench_spec.py \
+  backend/generated/three-host-http.intermediate.json \
+  --out backend/generated/three-host-http.mhbench.json
+
+python3 backend/scripts/export_mhbench_spec.py \
+  backend/generated/three-host-http.intermediate.json \
+  --mhbench-root ../MHBench
+
 python3 backend/scripts/deploy_docker.py \
   backend/generated/three-host-http.intermediate.json \
   --replace
@@ -129,7 +139,8 @@ python3 backend/scripts/teardown_docker.py \
 - Router `imagePath` values beginning with `docker://` become router container image names.
 - The example uses `docker://nginx:alpine` so each host serves HTTP on port `80`.
 - Router blocks compile to first-class `routers[]` entries, topology links compile to Docker bridge subnets, and router interfaces compile to `subnetConnections[]` plus route entries.
-- The compiler also emits an `mhbench` projection with `networks[].subnets[].hosts[]`, `subnet_connections[]`, and `playbooks[]`, matching the MHBench environment shape without changing deployment targets yet.
+- The compiler emits an `mhbench` projection with `networks[].subnets[].hosts[]`, `subnet_connections[]`, and `playbooks[]`.
+- `export_mhbench_spec.py` writes the projection as a standalone MHBench environment JSON. It defaults hosts to MHBench's `ubuntu_base_running` VM type and `m1.small` OpenStack flavor unless the IDE graph provides overrides.
 - RAM is passed to Docker as a memory limit.
 - Storage GB and external drive paths are preserved in the intermediate DSL; storage quotas are not enforced yet because Docker storage quota support depends on the local storage driver.
 - Connector ports are validated and used for HTTP reachability checks.
