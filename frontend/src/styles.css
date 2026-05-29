@@ -92,6 +92,7 @@ h2 {
 .topbar-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
 }
 
@@ -116,11 +117,45 @@ h2 {
   cursor: pointer;
 }
 
+.board-name-field {
+  display: inline-grid;
+  grid-template-columns: auto minmax(150px, 190px);
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: #ffffff;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.board-name-field input {
+  min-height: 24px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--ink);
+  text-transform: none;
+}
+
+.board-name-field input:focus {
+  outline: 0;
+}
+
 .topbar-actions button:hover,
 .palette-item:hover,
 .block:hover {
   border-color: var(--code);
   background: #eef2f7;
+}
+
+.topbar-actions button:disabled {
+  cursor: wait;
+  opacity: 0.58;
 }
 
 .workspace {
@@ -367,6 +402,91 @@ h2 {
 .remove-button:hover {
   border-color: var(--code);
   background: #eef2f7;
+}
+
+.run-status {
+  display: grid;
+  gap: 8px;
+  margin-top: 2px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: #ffffff;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.run-status-header,
+.container-row,
+.run-details div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.run-status-header span {
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.run-status p,
+.run-details {
+  margin: 0;
+}
+
+.run-error {
+  max-height: 112px;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid #f3b7b7;
+  border-radius: 3px;
+  padding: 6px;
+  color: #8f1d1d;
+  background: #fff5f5;
+  white-space: pre-wrap;
+}
+
+.run-details {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+}
+
+.run-details dt {
+  font-weight: 700;
+}
+
+.run-details dd {
+  margin: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.check-list,
+.container-list {
+  display: grid;
+  gap: 5px;
+}
+
+.check-list span,
+.container-row {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 5px 6px;
+  background: #f8fafc;
+}
+
+.check-ok {
+  color: #12613a;
+}
+
+.check-failed {
+  color: #8f1d1d;
+}
+
+.container-row span:last-child {
+  color: var(--muted);
+  text-align: right;
 }
 
 button:focus-visible,

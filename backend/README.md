@@ -31,6 +31,24 @@ Run:
 backend/scripts/run_three_host_example.sh
 ```
 
+For frontend-driven compile/deploy buttons, start the API server from the repo root:
+
+```bash
+python3 backend/scripts/api_server.py
+```
+
+The frontend posts the visible board to:
+
+- `POST /api/compile`
+- `POST /api/deploy`
+- `GET /api/status?name=three-host-http`
+
+To start from the React frontend instead, load the three-host board, download the `.ide.json` file, then pass that export to the same runner:
+
+```bash
+backend/scripts/run_three_host_example.sh ~/Downloads/three-host-http.ide.json
+```
+
 The example runner defaults to Colima's Docker Engine socket at `~/.colima/default/docker.sock` when neither `DOCKER_HOST` nor `DOCKER_CONTEXT` is set. It also uses an isolated Docker config under `backend/runs/docker-config` for the public `nginx:alpine` pull, which avoids depending on a desktop credential helper.
 
 If Colima is not running, start the CLI engine first:

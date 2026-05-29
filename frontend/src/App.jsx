@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FileDown, RefreshCcw, X } from "lucide-react";
+import { Activity, Code2, FileDown, RefreshCcw, Rocket, X } from "lucide-react";
 
-const BLOCK_WIDTH = 176;
-const BLOCK_HEIGHT = 74;
-const STORAGE_KEY = "simple-block-board-state-v4";
+const BLOCK_WIDTH = 132;
+const BLOCK_HEIGHT = 56;
+const API_BASE_URL = import.meta.env.VITE_CYBLOCKS_API_URL || "http://127.0.0.1:8787";
+const DEFAULT_BOARD_NAME = "three-host-http";
+const DEFAULT_OS_IMAGE_PATH = "docker://nginx:alpine";
+const DEFAULT_CONNECTION_LABEL = "http";
+const DEFAULT_CONNECTION_PORT = "80";
+const STORAGE_KEY = "simple-block-board-state-v5";
 
 const BLOCK_TYPES = [
   { id: "host-small", label: "host.small", color: "#ff8a7a", ramGb: 2, storageGb: 32 },
@@ -27,20 +32,27 @@ const PORT_OPTIONS = [
 const BLOCK_TYPE_MAP = Object.fromEntries(BLOCK_TYPES.map((type) => [type.id, type]));
 
 function loadCanvas() {
+  const fallback = createThreeHostCanvas();
+
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
     const parsed = saved ? JSON.parse(saved) : null;
 
     if (Array.isArray(parsed)) {
-      return { blocks: normalizeBlocks(parsed), connections: [] };
+      return { name: fallback.name, blocks: normalizeBlocks(parsed), connections: [] };
+    }
+
+    if (!parsed) {
+      return fallback;
     }
 
     return {
+      name: typeof parsed?.name === "string" && parsed.name.trim() ? parsed.name : fallback.name,
       blocks: normalizeBlocks(Array.isArray(parsed?.blocks) ? parsed.blocks : []),
       connections: normalizeConnections(Array.isArray(parsed?.connections) ? parsed.connections : [])
     };
   } catch {
-    return { blocks: [], connections: [] };
+    return fallback;
   }
 }
 
@@ -49,7 +61,7 @@ function createHostDefaults(typeId, index = 1) {
 
   return {
     hostname: `${type.label.replace(".", "-")}-${index}`,
-    osImagePath: "/images/base-linux.img",
+    osImagePath: DEFAULT_OS_IMAGE_PATH,
     ramGb: type.ramGb,
     storageGb: type.storageGb,
     externalDrives: []
@@ -84,19 +96,24 @@ function normalizeBlocks(blocks) {
 function normalizeConnections(connections) {
   return connections.map((connection, index) => ({
     ...connection,
-    label: connection.label || `link.${index + 1}`,
-    port: String(connection.port || "8080")
+    label: connection.label || (index === 0 ? DEFAULT_CONNECTION_LABEL : `${DEFAULT_CONNECTION_LABEL}.${index + 1}`),
+    port: String(connection.port || DEFAULT_CONNECTION_PORT)
   }));
 }
 
 function App() {
+  const initialCanvasRef = useRef(null);
   const boardRef = useRef(null);
   const blockDragRef = useRef(null);
   const connectorDragRef = useRef(null);
   const copiedBlockRef = useRef(null);
   const paletteDragRef = useRef(null);
-  const [blocks, setBlocks] = useState(() => loadCanvas().blocks);
-  const [connections, setConnections] = useState(() => loadCanvas().connections);
+  if (!initialCanvasRef.current) {
+    initialCanvasRef.current = loadCanvas();
+  }
+  const [boardName, setBoardName] = useState(() => initialCanvasRef.current.name);
+  const [blocks, setBlocks] = useState(() => initialCanvasRef.current.blocks);
+  const [connections, setConnections] = useState(() => initialCanvasRef.current.connections);
   const [boardSize, setBoardSize] = useState({ width: 900, height: 520 });
   const [connectorDrag, setConnectorDrag] = useState(null);
   const [paletteDrag, setPaletteDrag] = useState(null);
@@ -104,12 +121,21 @@ function App() {
   const [selectedBlockId, setSelectedBlockId] = useState(null);
   const [selectedConnectionId, setSelectedConnectionId] = useState(null);
   const [status, setStatus] = useState("Ready");
+  const [runState, setRunState] = useState({
+    phase: "idle",
+    message: "No backend run yet.",
+    result: null,
+    deployment: null,
+    containers: [],
+    error: null
+  });
   const selectedBlock = blocks.find((block) => block.id === selectedBlockId) || null;
   const selectedConnection = connections.find((connection) => connection.id === selectedConnectionId) || null;
+  const isBackendBusy = runState.phase === "compiling" || runState.phase === "deploying";
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ blocks, connections }));
-  }, [blocks, connections]);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ name: boardName, blocks, connections }));
+  }, [boardName, blocks, connections]);
 
   useEffect(() => {
     const board = boardRef.current;
@@ -286,10 +312,10 @@ function App() {
               ...current,
               {
                 id: connectionId,
-                label: `link.${current.length + 1}`,
+                label: current.length === 0 ? DEFAULT_CONNECTION_LABEL : `${DEFAULT_CONNECTION_LABEL}.${current.length + 1}`,
                 from: sourceId,
                 to: targetId,
-                port: "8080"
+                port: DEFAULT_CONNECTION_PORT
               }
             ];
           });
@@ -480,40 +506,18 @@ function App() {
   }
 
   function resetBoard() {
-    const sample = BLOCK_TYPES.slice(0, 3).map((type, index) => ({
-      id: `sample-${type.id}`,
-      type: type.id,
-      label: type.label,
-      color: type.color,
-      host: createHostDefaults(type.id, index + 1),
-      x: 80 + index * 210,
-      y: 90 + index * 80
-    }));
-    const sampleConnections = [
-      {
-        id: "sample-host-small-to-host-medium",
-        label: "link.control",
-        from: "sample-host-small",
-        to: "sample-host-medium",
-        port: "22"
-      },
-      {
-        id: "sample-host-medium-to-host-large",
-        label: "link.app",
-        from: "sample-host-medium",
-        to: "sample-host-large",
-        port: "8080"
-      }
-    ];
+    const sample = createThreeHostCanvas();
 
-    setBlocks(sample);
-    setConnections(sampleConnections);
-    setSelectedBlockId(sample[0]?.id || null);
+    setBoardName(sample.name);
+    setBlocks(sample.blocks);
+    setConnections(sample.connections);
+    setSelectedBlockId(sample.blocks[0]?.id || null);
     setSelectedConnectionId(null);
-    setStatus("Loaded sample blocks");
+    setStatus("Loaded three-host graph");
   }
 
-  function downloadBlocksJson() {
+  function buildVisibleGraph() {
+    const outputName = slugName(boardName);
     const visibleBlockIds = new Set();
     const visibleBlocks = blocks
       .filter((block) => {
@@ -559,31 +563,164 @@ function App() {
         port: connection.port
       }));
 
-    const output = {
+    return {
       kind: "block-board",
       version: 1,
+      name: outputName,
       compiledAt: new Date().toISOString(),
       blockCount: visibleBlocks.length,
       connectionCount: visibleConnections.length,
       blocks: visibleBlocks,
       connections: visibleConnections
     };
+  }
+
+  function downloadBlocksJson() {
+    const output = buildVisibleGraph();
 
     const blob = new Blob([`${JSON.stringify(output, null, 2)}\n`], {
       type: "application/json"
     });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
+    const fileName = `${output.name}.ide.json`;
 
     anchor.href = url;
-    anchor.download = "blocks.json";
+    anchor.download = fileName;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
     setStatus(
-      `Downloaded ${visibleBlocks.length} block${visibleBlocks.length === 1 ? "" : "s"}, ${visibleConnections.length} connection${visibleConnections.length === 1 ? "" : "s"} as blocks.json`
+      `Downloaded ${output.blockCount} block${output.blockCount === 1 ? "" : "s"}, ${output.connectionCount} connection${output.connectionCount === 1 ? "" : "s"} as ${fileName}`
     );
+  }
+
+  async function postGraph(path) {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ graph: buildVisibleGraph() })
+    });
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || `Request failed with ${response.status}`);
+    }
+
+    return payload;
+  }
+
+  async function fetchDeploymentStatus(name = slugName(boardName)) {
+    const response = await fetch(`${API_BASE_URL}/api/status?name=${encodeURIComponent(name)}`);
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || `Status failed with ${response.status}`);
+    }
+
+    return payload.status;
+  }
+
+  async function compileBoard() {
+    setStatus("Compiling board");
+    setRunState((current) => ({
+      ...current,
+      phase: "compiling",
+      message: "Compiling visible board...",
+      error: null
+    }));
+
+    try {
+      const payload = await postGraph("/api/compile");
+      setRunState({
+        phase: "compiled",
+        message: `Compiled ${payload.result.name}`,
+        result: payload.result,
+        deployment: null,
+        containers: [],
+        error: null
+      });
+      setStatus(`Compiled ${payload.result.name}`);
+    } catch (error) {
+      setRunState((current) => ({
+        ...current,
+        phase: "error",
+        message: "Compile failed.",
+        error: error.message
+      }));
+      setStatus("Compile failed");
+    }
+  }
+
+  async function deployBoard() {
+    setStatus("Deploying board");
+    setRunState((current) => ({
+      ...current,
+      phase: "deploying",
+      message: "Deploying visible board...",
+      error: null
+    }));
+
+    try {
+      const payload = await postGraph("/api/deploy");
+      const liveStatus = await fetchDeploymentStatus(payload.result.name);
+      const checks = payload.deployment?.checks || [];
+      const passed = checks.filter((check) => check.ok).length;
+
+      setRunState({
+        phase: "deployed",
+        message: `Deployed ${payload.result.name}; ${passed}/${checks.length} checks passed.`,
+        result: payload.result,
+        deployment: payload.deployment,
+        containers: liveStatus.containers || [],
+        error: null
+      });
+      setStatus(`Deployed ${payload.result.name}`);
+    } catch (error) {
+      setRunState((current) => ({
+        ...current,
+        phase: "error",
+        message: "Deploy failed.",
+        error: error.message
+      }));
+      setStatus("Deploy failed");
+    }
+  }
+
+  async function refreshDeploymentStatus() {
+    setStatus("Checking containers");
+    setRunState((current) => ({
+      ...current,
+      phase: current.phase === "idle" ? "checking" : current.phase,
+      message: "Checking deployed containers...",
+      error: null
+    }));
+
+    try {
+      const liveStatus = await fetchDeploymentStatus();
+      setRunState((current) => ({
+        ...current,
+        phase: liveStatus.containers.length ? "deployed" : "compiled",
+        message: liveStatus.containers.length
+          ? `${liveStatus.containers.length} deployed container${liveStatus.containers.length === 1 ? "" : "s"} found.`
+          : "No deployed containers found.",
+        containers: liveStatus.containers || [],
+        deployment: liveStatus.state || current.deployment,
+        error: null
+      }));
+      setStatus("Container status updated");
+    } catch (error) {
+      setRunState((current) => ({
+        ...current,
+        phase: "error",
+        message: "Status check failed.",
+        error: error.message
+      }));
+      setStatus("Status check failed");
+    }
   }
 
   return (
@@ -594,13 +731,33 @@ function App() {
           <h1>Block Board</h1>
         </div>
         <div className="topbar-actions" aria-label="Board actions">
+          <label className="board-name-field">
+            <span>Name</span>
+            <input
+              value={boardName}
+              onChange={(event) => setBoardName(event.target.value)}
+              aria-label="Board name"
+            />
+          </label>
           <button type="button" onClick={resetBoard}>
             <RefreshCcw size={17} aria-hidden="true" />
-            <span>Sample</span>
+            <span>Three Host</span>
+          </button>
+          <button type="button" onClick={compileBoard} disabled={isBackendBusy}>
+            <Code2 size={17} aria-hidden="true" />
+            <span>{runState.phase === "compiling" ? "Compiling" : "Compile"}</span>
+          </button>
+          <button type="button" onClick={deployBoard} disabled={isBackendBusy}>
+            <Rocket size={17} aria-hidden="true" />
+            <span>{runState.phase === "deploying" ? "Deploying" : "Deploy"}</span>
+          </button>
+          <button type="button" onClick={refreshDeploymentStatus} disabled={isBackendBusy}>
+            <Activity size={17} aria-hidden="true" />
+            <span>Status</span>
           </button>
           <button type="button" onClick={downloadBlocksJson}>
             <FileDown size={17} aria-hidden="true" />
-            <span>Download JSON</span>
+            <span>Download IDE JSON</span>
           </button>
           <button type="button" onClick={clearBoard}>
             <X size={17} aria-hidden="true" />
@@ -841,6 +998,50 @@ function App() {
           {!selectedBlock && !selectedConnection && (
             <p className="properties-empty">Select a host block or connector.</p>
           )}
+
+          <section className={`run-status run-status-${runState.phase}`} aria-label="Run status">
+            <div className="run-status-header">
+              <strong>Run Status</strong>
+              <span>{runState.phase}</span>
+            </div>
+            <p>{runState.message}</p>
+            {runState.error && <pre className="run-error">{runState.error}</pre>}
+            {runState.result && (
+              <dl className="run-details">
+                <div>
+                  <dt>Intermediate</dt>
+                  <dd>{fileName(runState.result.intermediatePath)}</dd>
+                </div>
+                <div>
+                  <dt>Hosts</dt>
+                  <dd>{runState.result.intermediate?.hosts?.length || 0}</dd>
+                </div>
+                <div>
+                  <dt>Connectors</dt>
+                  <dd>{runState.result.intermediate?.connections?.length || 0}</dd>
+                </div>
+              </dl>
+            )}
+            {runState.deployment?.checks?.length > 0 && (
+              <div className="check-list">
+                {runState.deployment.checks.map((check) => (
+                  <span key={check.connection} className={check.ok ? "check-ok" : "check-failed"}>
+                    {check.connection}: {check.ok ? "ok" : "failed"}
+                  </span>
+                ))}
+              </div>
+            )}
+            {runState.containers.length > 0 && (
+              <div className="container-list">
+                {runState.containers.map((container) => (
+                  <div key={container.name} className="container-row">
+                    <span>{container.name}</span>
+                    <span>{container.status}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         </aside>
       </main>
 
@@ -864,6 +1065,57 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+function createThreeHostCanvas() {
+  const hosts = [
+    { id: "linux-1", x: 80, y: 90, color: BLOCK_TYPES[0].color },
+    { id: "linux-2", x: 300, y: 170, color: BLOCK_TYPES[1].color },
+    { id: "linux-3", x: 520, y: 250, color: BLOCK_TYPES[2].color }
+  ];
+
+  return {
+    name: DEFAULT_BOARD_NAME,
+    blocks: hosts.map((host, index) => ({
+      id: host.id,
+      type: "host-small",
+      label: "host.small",
+      color: host.color,
+      host: {
+        hostname: host.id,
+        osImagePath: DEFAULT_OS_IMAGE_PATH,
+        ramGb: 1,
+        storageGb: 8,
+        externalDrives: []
+      },
+      x: host.x,
+      y: host.y,
+      order: index
+    })),
+    connections: [
+      {
+        id: "linux-1-to-linux-2",
+        label: DEFAULT_CONNECTION_LABEL,
+        from: "linux-1",
+        to: "linux-2",
+        port: DEFAULT_CONNECTION_PORT
+      },
+      {
+        id: "linux-2-to-linux-3",
+        label: DEFAULT_CONNECTION_LABEL,
+        from: "linux-2",
+        to: "linux-3",
+        port: DEFAULT_CONNECTION_PORT
+      },
+      {
+        id: "linux-1-to-linux-3",
+        label: DEFAULT_CONNECTION_LABEL,
+        from: "linux-1",
+        to: "linux-3",
+        port: DEFAULT_CONNECTION_PORT
+      }
+    ]
+  };
+}
+
 function numberOrDefault(value, fallback) {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : fallback;
@@ -876,6 +1128,21 @@ function blockName(blocks, blockId) {
 
 function portSelectValue(port) {
   return PORT_OPTIONS.some((option) => option.value === port) ? port : "custom";
+}
+
+function fileName(path) {
+  return String(path || "").split("/").filter(Boolean).pop() || "";
+}
+
+function slugName(value) {
+  const normalized = String(value || DEFAULT_BOARD_NAME)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return normalized || DEFAULT_BOARD_NAME;
 }
 
 function isTypingTarget(target) {
