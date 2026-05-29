@@ -320,7 +320,11 @@ def apply_routes(docker: str, environment: dict[str, Any], project: str, log_pat
         network = route["toCidr"].split("/", 1)[0]
         netmask = cidr_netmask(route["toCidr"])
         command = install_route_command(route["toCidr"], route["via"], network, netmask)
-        run([docker, "exec", name, "sh", "-lc", command], log_path=log_path, capture=True)
+        result = run([docker, "exec", name, "sh", "-lc", command], log_path=log_path, check=False, capture=True)
+        if result.returncode != 0:
+            output = (result.stdout or "").strip()
+            detail = f": {output}" if output else ""
+            raise SystemExit(f"failed to install route {route['toCidr']} via {route['via']} on {name}{detail}")
 
 
 def verify_connections(
@@ -492,7 +496,7 @@ def connection_diagnostics(
             docker,
             source_container,
             f"{source_container} interfaces",
-            "ip -br addr 2>&1 || ip addr 2>&1 || true",
+            "ip addr 2>&1 || true",
             log_path,
         ),
         diagnostic_exec(
@@ -506,7 +510,7 @@ def connection_diagnostics(
             docker,
             target_container,
             f"{target_container} interfaces/routes",
-            "ip -br addr 2>&1 || ip addr 2>&1 || true; ip route 2>&1 || route -n 2>&1 || true",
+            "ip addr 2>&1 || true; ip route 2>&1 || route -n 2>&1 || true",
             log_path,
         ),
     ]
@@ -518,7 +522,7 @@ def connection_diagnostics(
                 router_container,
                 f"{router_container} forwarding/NAT",
                 "cat /proc/sys/net/ipv4/ip_forward 2>&1; "
-                "ip -br addr 2>&1 || ip addr 2>&1 || true; "
+                "ip addr 2>&1 || true; "
                 "ip route 2>&1 || route -n 2>&1 || true; "
                 "for fw in iptables iptables-legacy iptables-nft; do "
                 "if command -v \"$fw\" >/dev/null 2>&1; then "
@@ -527,6 +531,15 @@ def connection_diagnostics(
                 "\"$fw\" -t nat -S POSTROUTING 2>&1 || true; "
                 "else echo \"$fw=missing\"; fi; "
                 "done",
+                log_path,
+            )
+        )
+        sections.append(
+            diagnostic_exec(
+                docker,
+                router_container,
+                f"{router_container} HTTP to {target_address}:{target_port}",
+                f"wget -S -O- --timeout=3 http://{shlex.quote(target_address)}:{target_port}/ 2>&1 | head -c 300",
                 log_path,
             )
         )
@@ -625,7 +638,6 @@ def install_route_command(cidr: str, via: str, network: str, netmask: str) -> st
         "exit 0; "
         "fi; "
         "fi; "
-        "echo \"failed to install route $cidr via $via\" >&2; "
         "exit 1"
     )
 
