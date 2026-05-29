@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, Code2, FileDown, RefreshCcw, Rocket, X } from "lucide-react";
+import { Activity, Code2, FileDown, RefreshCcw, Rocket, Square, X } from "lucide-react";
 
 const BLOCK_WIDTH = 132;
 const BLOCK_HEIGHT = 56;
@@ -161,7 +161,7 @@ function App() {
   });
   const selectedBlock = blocks.find((block) => block.id === selectedBlockId) || null;
   const selectedConnection = connections.find((connection) => connection.id === selectedConnectionId) || null;
-  const isBackendBusy = runState.phase === "compiling" || runState.phase === "deploying";
+  const isBackendBusy = ["checking", "compiling", "deploying", "ending"].includes(runState.phase);
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ name: boardName, blocks, connections }));
@@ -779,6 +779,38 @@ function App() {
     }
   }
 
+  async function endDeployment() {
+    setStatus("Ending deployment");
+    setRunState((current) => ({
+      ...current,
+      phase: "ending",
+      message: "Removing deployed containers and networks...",
+      error: null
+    }));
+
+    try {
+      const payload = await postGraph("/api/teardown");
+      setRunState((current) => ({
+        ...current,
+        phase: "idle",
+        message: `Ended ${payload.result.name}; removed ${payload.teardown.removedContainers.length} container${payload.teardown.removedContainers.length === 1 ? "" : "s"} and ${payload.teardown.removedNetworks.length} network${payload.teardown.removedNetworks.length === 1 ? "" : "s"}.`,
+        result: payload.result,
+        deployment: null,
+        containers: [],
+        error: null
+      }));
+      setStatus(`Ended ${payload.result.name}`);
+    } catch (error) {
+      setRunState((current) => ({
+        ...current,
+        phase: "error",
+        message: "End deployment failed.",
+        error: error.message
+      }));
+      setStatus("End deployment failed");
+    }
+  }
+
   async function refreshDeploymentStatus() {
     setStatus("Checking containers");
     setRunState((current) => ({
@@ -796,6 +828,15 @@ function App() {
         message: liveStatus.containers.length
           ? `${liveStatus.containers.length} deployed container${liveStatus.containers.length === 1 ? "" : "s"} found.`
           : "No deployed containers found.",
+        result:
+          current.result ||
+          (liveStatus.intermediate
+            ? {
+                name: liveStatus.project,
+                intermediatePath: liveStatus.intermediatePath,
+                intermediate: liveStatus.intermediate
+              }
+            : null),
         containers: liveStatus.containers || [],
         deployment: liveStatus.state || current.deployment,
         error: null
@@ -839,6 +880,10 @@ function App() {
           <button type="button" onClick={deployBoard} disabled={isBackendBusy}>
             <Rocket size={17} aria-hidden="true" />
             <span>{runState.phase === "deploying" ? "Deploying" : "Deploy"}</span>
+          </button>
+          <button type="button" onClick={endDeployment} disabled={isBackendBusy}>
+            <Square size={17} aria-hidden="true" />
+            <span>{runState.phase === "ending" ? "Ending" : "End Deployment"}</span>
           </button>
           <button type="button" onClick={refreshDeploymentStatus} disabled={isBackendBusy}>
             <Activity size={17} aria-hidden="true" />
@@ -1169,11 +1214,26 @@ function App() {
                 ))}
               </div>
             )}
+            {runState.result?.intermediate?.networks?.length > 0 && (
+              <div className="subnet-list" aria-label="Compiled subnet map">
+                <strong>Subnets</strong>
+                {runState.result.intermediate.networks.map((network) => (
+                  <div key={network.id} className="subnet-row">
+                    <span>{network.id}</span>
+                    <span>{network.cidr}</span>
+                    <small>{subnetMemberText(network)}</small>
+                  </div>
+                ))}
+              </div>
+            )}
             {runState.containers.length > 0 && (
               <div className="container-list">
                 {runState.containers.map((container) => (
                   <div key={container.name} className="container-row">
-                    <span>{container.name}</span>
+                    <div>
+                      <span>{container.name}</span>
+                      <small>{container.networks || "no networks"}</small>
+                    </div>
                     <span>{container.status}</span>
                   </div>
                 ))}
@@ -1304,6 +1364,12 @@ function connectionLabel(connection) {
     return connection.label;
   }
   return `${connection.label}:${connection.port}`;
+}
+
+function subnetMemberText(network) {
+  return (network.members || [])
+    .map((member) => `${member.kind}:${member.id}@${member.ipAddress || "dynamic"}`)
+    .join("  ");
 }
 
 function portSelectValue(port) {

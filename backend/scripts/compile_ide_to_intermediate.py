@@ -163,7 +163,9 @@ def compile_ide_graph(source: dict[str, Any], *, name: str | None = None) -> dic
         connection_id = str(connection.get("id") or f"connection-{index + 1}")
         endpoint_kinds = {node_kinds[from_id], node_kinds[to_id]}
         connection_kind = str(connection.get("kind") or "").lower()
-        if connection_kind not in {"service", "topology"}:
+        if "router" in endpoint_kinds:
+            connection_kind = "topology"
+        elif connection_kind not in {"service", "topology"}:
             connection_kind = "topology" if "router" in endpoint_kinds else "service"
 
         compiled = {

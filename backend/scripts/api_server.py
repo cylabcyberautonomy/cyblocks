@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlparse
 from backend_common import DEFAULT_RUNS_DIR, docker_bin, load_json, run, run_dir, slug, write_json
 from compile_ide_to_intermediate import compile_ide_graph
 from deploy_docker import deploy
+from teardown_docker import teardown
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -53,6 +54,7 @@ def compile_source(source: dict[str, Any]) -> dict[str, Any]:
 def deployment_status(name: str) -> dict[str, Any]:
     project = slug(name)
     state_path = run_dir(project) / "deployment.json"
+    intermediate_path = GENERATED_DIR / f"{project}.intermediate.json"
     containers = []
 
     try:
@@ -87,6 +89,8 @@ def deployment_status(name: str) -> dict[str, Any]:
         "project": project,
         "statePath": str(state_path),
         "state": load_json(state_path) if state_path.exists() else None,
+        "intermediatePath": str(intermediate_path),
+        "intermediate": load_json(intermediate_path) if intermediate_path.exists() else None,
         "containers": containers,
     }
 
@@ -133,6 +137,17 @@ class ApiHandler(BaseHTTPRequestHandler):
                     project_override=result["name"],
                 )
                 self.send_json({"ok": True, "result": result, "deployment": state})
+                return
+
+            if self.path == "/api/teardown":
+                configure_docker_environment()
+                result = compile_source(source)
+                state = teardown(
+                    result["intermediate"],
+                    docker=docker_bin(),
+                    project_override=result["name"],
+                )
+                self.send_json({"ok": True, "result": result, "teardown": state})
                 return
 
             self.send_json({"ok": False, "error": "Not found"}, status=404)

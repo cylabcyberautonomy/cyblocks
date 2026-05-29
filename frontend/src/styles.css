@@ -473,17 +473,44 @@ h2 {
 }
 
 .check-list,
-.container-list {
+.container-list,
+.subnet-list {
   display: grid;
   gap: 5px;
 }
 
 .check-list span,
-.container-row {
+.container-row,
+.subnet-row {
   border: 1px solid var(--line);
   border-radius: 3px;
   padding: 5px 6px;
   background: #f8fafc;
+}
+
+.subnet-list strong {
+  color: var(--ink);
+}
+
+.subnet-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 8px;
+}
+
+.subnet-row small,
+.container-row small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.subnet-row small {
+  grid-column: 1 / -1;
+}
+
+.container-row > div {
+  display: grid;
+  min-width: 0;
 }
 
 .check-ok {

@@ -48,16 +48,24 @@ def member_ip(network: dict[str, Any], node_id: str) -> str | None:
     return None
 
 
-def ensure_network(docker: str, network: dict[str, Any], log_path: Path) -> None:
+def ensure_network(docker: str, network: dict[str, Any], project: str, log_path: Path) -> None:
     network_name = slug(network.get("name") or network["id"])
     existing = run([docker, "network", "inspect", network_name], log_path=log_path, check=False, capture=True)
     if existing.returncode == 0:
         return
-    cmd = [docker, "network", "create", "--driver", network.get("driver") or "bridge"]
+    cmd = [
+        docker,
+        "network",
+        "create",
+        "--driver",
+        network.get("driver") or "bridge",
+        "--label",
+        f"cyblocks.project={project}",
+    ]
     if network.get("cidr"):
         cmd.extend(["--subnet", str(network["cidr"])])
     cmd.append(network_name)
-    run(cmd, log_path=log_path)
+    run(cmd, log_path=log_path, capture=True)
 
 
 def remove_project_containers(docker: str, project: str, log_path: Path) -> None:
@@ -72,9 +80,28 @@ def remove_project_containers(docker: str, project: str, log_path: Path) -> None
         run([docker, "rm", "-f", *container_ids], log_path=log_path, check=False)
 
 
-def remove_project_networks(docker: str, environment: dict[str, Any], log_path: Path) -> None:
-    for network in environment.get("networks", []):
-        network_name = slug(network.get("name") or network["id"])
+def remove_project_networks(docker: str, environment: dict[str, Any], project: str, log_path: Path) -> None:
+    network_names = {slug(network.get("name") or network["id"]) for network in environment.get("networks", [])}
+
+    labeled = run(
+        [docker, "network", "ls", "-q", "--filter", f"label=cyblocks.project={project}"],
+        log_path=log_path,
+        capture=True,
+        check=False,
+    )
+    network_names.update(line.strip() for line in (labeled.stdout or "").splitlines() if line.strip())
+
+    listed = run(
+        [docker, "network", "ls", "--format", "{{.Name}}"],
+        log_path=log_path,
+        capture=True,
+        check=False,
+    )
+    for name in (listed.stdout or "").splitlines():
+        if name == f"{project}-net" or name.startswith(f"{project}-"):
+            network_names.add(name)
+
+    for network_name in sorted(network_names):
         run([docker, "network", "rm", network_name], log_path=log_path, check=False, capture=True)
 
 
@@ -109,11 +136,11 @@ def deploy(environment: dict[str, Any], *, docker: str, replace: bool, project_o
     ensure_docker_ready(docker, log_path)
     if replace:
         remove_project_containers(docker, project, log_path)
-        remove_project_networks(docker, environment, log_path)
+        remove_project_networks(docker, environment, project, log_path)
 
     networks = environment.get("networks") or [{"id": "default", "name": f"{project}-net", "driver": "bridge"}]
     for network in networks:
-        ensure_network(docker, network, log_path)
+        ensure_network(docker, network, project, log_path)
 
     containers = []
     routers = []

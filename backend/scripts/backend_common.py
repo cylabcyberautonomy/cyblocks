@@ -77,7 +77,7 @@ def run(
     if check and result.returncode != 0:
         if capture and result.stdout:
             sys.stderr.write(result.stdout)
-        raise SystemExit(result.returncode)
+        raise SystemExit((result.stdout or "").strip() or result.returncode)
     return result
 
 
