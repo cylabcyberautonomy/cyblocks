@@ -16,6 +16,12 @@ if [[ -d /usr/local/bin ]]; then
   export PATH="/usr/local/bin:$PATH"
 fi
 export DOCKER_CONFIG="${DOCKER_CONFIG:-$EXAMPLE_DOCKER_CONFIG}"
+if [[ "$(uname -s)" == "Linux" && "${DOCKER_HOST:-}" == unix://*.colima/* ]]; then
+  colima_socket="${DOCKER_HOST#unix://}"
+  if [[ ! -S "$colima_socket" ]]; then
+    unset DOCKER_HOST
+  fi
+fi
 if [[ -z "${DOCKER_HOST:-}" && -z "${DOCKER_CONTEXT:-}" ]]; then
   if [[ "$(uname -s)" == "Darwin" && -S "$HOME/.colima/default/docker.sock" ]]; then
     export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"

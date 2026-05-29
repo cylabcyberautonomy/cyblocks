@@ -54,6 +54,7 @@ def docker_bin(explicit: str | None = None) -> str:
 
 
 def configure_docker_cli_environment() -> None:
+    system = platform.system().lower()
     extra_paths = [path for path in MACOS_DOCKER_PATHS if Path(path).exists()]
     if extra_paths:
         os.environ["PATH"] = f"{':'.join(extra_paths)}:{os.environ.get('PATH', '')}"
@@ -65,10 +66,13 @@ def configure_docker_cli_environment() -> None:
     if not config_path.exists():
         config_path.write_text('{ "auths": {} }\n')
 
+    docker_host = os.environ.get("DOCKER_HOST")
+    if system == "linux" and docker_host and is_stale_colima_docker_host(docker_host):
+        os.environ.pop("DOCKER_HOST", None)
+
     if os.environ.get("DOCKER_HOST") or os.environ.get("DOCKER_CONTEXT"):
         return
 
-    system = platform.system().lower()
     if system == "darwin":
         colima_socket = Path.home() / ".colima" / "default" / "docker.sock"
         if colima_socket.exists():
@@ -80,6 +84,15 @@ def configure_docker_cli_environment() -> None:
         rootless_socket = Path(runtime_dir) / "docker.sock" if runtime_dir else None
         if rootless_socket and rootless_socket.exists() and not Path("/var/run/docker.sock").exists():
             os.environ["DOCKER_HOST"] = f"unix://{rootless_socket}"
+
+
+def is_stale_colima_docker_host(docker_host: str) -> bool:
+    if ".colima" not in docker_host:
+        return False
+    if not docker_host.startswith("unix://"):
+        return False
+    socket_path = Path(docker_host.removeprefix("unix://")).expanduser()
+    return not socket_path.exists()
 
 
 def run(

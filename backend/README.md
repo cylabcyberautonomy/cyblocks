@@ -29,6 +29,7 @@ Linux:
 
 ```bash
 sudo systemctl start docker
+unset DOCKER_HOST   # only needed if your shell has an old Colima value
 docker info
 ```
 
