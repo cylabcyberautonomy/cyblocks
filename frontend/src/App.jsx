@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, Code2, FileDown, RefreshCcw, Rocket, Square, X } from "lucide-react";
+import { Activity, Code2, FileDown, Power, RefreshCcw, Rocket, Square, X } from "lucide-react";
 
 const BLOCK_WIDTH = 132;
 const BLOCK_HEIGHT = 56;
@@ -161,7 +161,7 @@ function App() {
   });
   const selectedBlock = blocks.find((block) => block.id === selectedBlockId) || null;
   const selectedConnection = connections.find((connection) => connection.id === selectedConnectionId) || null;
-  const isBackendBusy = ["checking", "compiling", "deploying", "ending"].includes(runState.phase);
+  const isBackendBusy = ["checking", "compiling", "deploying", "ending", "quitting"].includes(runState.phase);
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ name: boardName, blocks, connections }));
@@ -811,6 +811,47 @@ function App() {
     }
   }
 
+  async function quitServers() {
+    setStatus("Quitting app");
+    setRunState((current) => ({
+      ...current,
+      phase: "quitting",
+      message: "Stopping frontend and backend servers...",
+      error: null
+    }));
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/quit`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: "{}"
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || `Request failed with ${response.status}`);
+      }
+
+      setRunState((current) => ({
+        ...current,
+        phase: "idle",
+        message: `Quit requested. Backend is stopping and frontend port ${payload.frontendPort} is being released.`,
+        error: null
+      }));
+      setStatus("Quit requested");
+    } catch (error) {
+      setRunState((current) => ({
+        ...current,
+        phase: "error",
+        message: "Quit failed.",
+        error: error.message
+      }));
+      setStatus("Quit failed");
+    }
+  }
+
   async function refreshDeploymentStatus() {
     setStatus("Checking containers");
     setRunState((current) => ({
@@ -896,6 +937,10 @@ function App() {
           <button type="button" onClick={clearBoard}>
             <X size={17} aria-hidden="true" />
             <span>Clear</span>
+          </button>
+          <button type="button" onClick={quitServers} disabled={isBackendBusy}>
+            <Power size={17} aria-hidden="true" />
+            <span>{runState.phase === "quitting" ? "Quitting" : "Quit"}</span>
           </button>
         </div>
       </header>

@@ -23,7 +23,7 @@ sudo systemctl start docker
 docker info
 ```
 
-Then open the printed local frontend URL. The prototype is intentionally nondescript: drag host and router blocks onto a plain board, edit VM-style host attributes, connect block ports, use `Download IDE JSON` to save the visible graph, or use `Compile`, `Deploy`, `Status`, and `End Deployment` to work through the local backend.
+Then open the printed local frontend URL. The prototype is intentionally nondescript: drag host and router blocks onto a plain board, edit VM-style host attributes, connect block ports, use `Download IDE JSON` to save the visible graph, use `Compile`, `Deploy`, `Status`, and `End Deployment` to work through the local backend, or use `Quit` to stop the local frontend/backend dev servers.
 
 To start from the frontend and run the local three-host experiment:
 

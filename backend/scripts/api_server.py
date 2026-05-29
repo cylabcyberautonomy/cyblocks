@@ -3,6 +3,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -16,6 +23,7 @@ from teardown_docker import teardown
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
+DEFAULT_FRONTEND_PORT = 5173
 GENERATED_DIR = Path(__file__).resolve().parents[1] / "generated"
 
 
@@ -84,6 +92,99 @@ def deployment_status(name: str) -> dict[str, Any]:
     }
 
 
+def listening_pids(port: int) -> list[int]:
+    pids: set[int] = set()
+    lsof = shutil.which("lsof")
+    if lsof:
+        result = subprocess.run(
+            [lsof, f"-tiTCP:{port}", "-sTCP:LISTEN"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        pids.update(int(line) for line in result.stdout.splitlines() if line.strip().isdigit())
+
+    fuser = shutil.which("fuser")
+    if fuser and not pids:
+        result = subprocess.run(
+            [fuser, "-n", "tcp", str(port)],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        pids.update(int(match) for match in re.findall(r"\b\d+\b", result.stdout or ""))
+
+    if not pids:
+        pids.update(linux_proc_listening_pids(port))
+
+    return sorted(pids)
+
+
+def linux_proc_listening_pids(port: int) -> set[int]:
+    socket_inodes: set[str] = set()
+    for table in (Path("/proc/net/tcp"), Path("/proc/net/tcp6")):
+        if not table.exists():
+            continue
+        for line in table.read_text(errors="ignore").splitlines()[1:]:
+            parts = line.split()
+            if len(parts) < 10 or parts[3] != "0A":
+                continue
+            _, raw_port = parts[1].rsplit(":", 1)
+            if int(raw_port, 16) == port:
+                socket_inodes.add(parts[9])
+
+    pids: set[int] = set()
+    if not socket_inodes:
+        return pids
+
+    for proc_dir in Path("/proc").iterdir():
+        if not proc_dir.name.isdigit():
+            continue
+        fd_dir = proc_dir / "fd"
+        try:
+            fds = list(fd_dir.iterdir())
+        except (FileNotFoundError, PermissionError):
+            continue
+        for fd in fds:
+            try:
+                target = os.readlink(fd)
+            except (FileNotFoundError, OSError, PermissionError):
+                continue
+            match = re.fullmatch(r"socket:\[(\d+)\]", target)
+            if match and match.group(1) in socket_inodes:
+                pids.add(int(proc_dir.name))
+                break
+    return pids
+
+
+def stop_pids(pids: list[int], *, exclude: set[int] | None = None) -> list[int]:
+    exclude = exclude or set()
+    stopped = []
+    for pid in pids:
+        if pid in exclude:
+            continue
+        try:
+            os.kill(pid, signal.SIGTERM)
+            stopped.append(pid)
+        except ProcessLookupError:
+            continue
+    return stopped
+
+
+def schedule_quit(server: ThreadingHTTPServer, *, frontend_port: int = DEFAULT_FRONTEND_PORT) -> list[int]:
+    frontend_pids = listening_pids(frontend_port)
+
+    def shutdown() -> None:
+        time.sleep(0.25)
+        stop_pids(frontend_pids, exclude={os.getpid()})
+        server.shutdown()
+
+    threading.Thread(target=shutdown, daemon=True).start()
+    return frontend_pids
+
+
 class ApiHandler(BaseHTTPRequestHandler):
     server_version = "CyblocksBackend/0.1"
 
@@ -139,6 +240,18 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self.send_json({"ok": True, "result": result, "teardown": state})
                 return
 
+            if self.path == "/api/quit":
+                frontend_pids = schedule_quit(self.server)
+                self.send_json(
+                    {
+                        "ok": True,
+                        "message": "Stopping frontend and backend.",
+                        "frontendPort": DEFAULT_FRONTEND_PORT,
+                        "frontendPids": frontend_pids,
+                    }
+                )
+                return
+
             self.send_json({"ok": False, "error": "Not found"}, status=404)
         except SystemExit as exc:
             self.send_json({"ok": False, "error": str(exc)}, status=500)
@@ -176,7 +289,10 @@ def main() -> None:
     configure_docker_environment()
     server = ThreadingHTTPServer((args.host, args.port), ApiHandler)
     print(f"Cyblocks backend API listening on http://{args.host}:{args.port}")
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":

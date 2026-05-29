@@ -50,6 +50,7 @@ The frontend posts the visible board to:
 - `POST /api/compile`
 - `POST /api/deploy`
 - `POST /api/teardown`
+- `POST /api/quit`
 - `GET /api/status?name=three-host-http`
 
 To start from the React frontend instead, load the three-host board, download the `.ide.json` file, then pass that export to the same runner:
