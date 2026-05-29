@@ -129,6 +129,7 @@ python3 backend/scripts/teardown_docker.py \
 - Router `imagePath` values beginning with `docker://` become router container image names.
 - The example uses `docker://nginx:alpine` so each host serves HTTP on port `80`.
 - Router blocks compile to first-class `routers[]` entries, topology links compile to Docker bridge subnets, and router interfaces compile to `subnetConnections[]` plus route entries.
+- Router containers run with Docker's local `--privileged` flag in this prototype so Linux Docker Engine can enable forwarding inside the router network namespace. The deployer verifies `ip_forward=1` before running cross-subnet checks.
 - The compiler also emits an `mhbench` projection with `networks[].subnets[].hosts[]`, `subnet_connections[]`, and `playbooks[]`, matching the MHBench environment shape without changing deployment targets yet.
 - RAM is passed to Docker as a memory limit.
 - Storage GB and external drive paths are preserved in the intermediate DSL; storage quotas are not enforced yet because Docker storage quota support depends on the local storage driver.

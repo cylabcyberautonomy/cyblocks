@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -53,15 +54,25 @@ def ensure_network(docker: str, network: dict[str, Any], project: str, log_path:
     existing = run([docker, "network", "inspect", network_name], log_path=log_path, check=False, capture=True)
     if existing.returncode == 0:
         return
+    driver = network.get("driver") or "bridge"
     cmd = [
         docker,
         "network",
         "create",
         "--driver",
-        network.get("driver") or "bridge",
+        driver,
         "--label",
         f"cyblocks.project={project}",
     ]
+    if driver == "bridge":
+        cmd.extend(
+            [
+                "--opt",
+                "com.docker.network.bridge.enable_icc=true",
+                "--opt",
+                "com.docker.network.bridge.enable_ip_masquerade=true",
+            ]
+        )
     if network.get("cidr"):
         cmd.extend(["--subnet", str(network["cidr"])])
     cmd.append(network_name)
@@ -201,8 +212,7 @@ def deploy_router(
         primary_network_name,
         "--label",
         f"cyblocks.project={project}",
-        "--cap-add",
-        "NET_ADMIN",
+        "--privileged",
         "--sysctl",
         "net.ipv4.ip_forward=1",
     ]
@@ -219,20 +229,26 @@ def deploy_router(
         connect_cmd.extend([slug(network.get("name") or network["id"]), name])
         run(connect_cmd, log_path=log_path)
 
-    run(
+    forwarding = run(
         [
             docker,
             "exec",
             name,
             "sh",
             "-lc",
-            "sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || echo 1 > /proc/sys/net/ipv4/ip_forward",
+            router_forwarding_command(),
         ],
         log_path=log_path,
-        check=False,
+        check=True,
         capture=True,
     )
-    return {"routerId": router["id"], "name": router["name"], "container": name, "image": image}
+    return {
+        "routerId": router["id"],
+        "name": router["name"],
+        "container": name,
+        "image": image,
+        "ipForwarding": (forwarding.stdout or "").strip(),
+    }
 
 
 def deploy_host(
@@ -303,12 +319,8 @@ def apply_routes(docker: str, environment: dict[str, Any], project: str, log_pat
         name = container_name(project, node.get("name") or node.get("hostname"))
         network = route["toCidr"].split("/", 1)[0]
         netmask = cidr_netmask(route["toCidr"])
-        command = (
-            f"ip route replace {route['toCidr']} via {route['via']} "
-            f"|| route add -net {network} netmask {netmask} gw {route['via']} "
-            "|| true"
-        )
-        run([docker, "exec", name, "sh", "-lc", command], log_path=log_path, check=False, capture=True)
+        command = install_route_command(route["toCidr"], route["via"], network, netmask)
+        run([docker, "exec", name, "sh", "-lc", command], log_path=log_path, capture=True)
 
 
 def verify_connections(
@@ -385,6 +397,54 @@ def cidr_netmask(cidr: str) -> str:
     prefix = int(cidr.split("/", 1)[1])
     mask = (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF
     return ".".join(str((mask >> shift) & 0xFF) for shift in (24, 16, 8, 0))
+
+
+def router_forwarding_command() -> str:
+    return (
+        "set -eu; "
+        "if [ \"$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo 0)\" != \"1\" ]; then "
+        "sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true; "
+        "fi; "
+        "for setting in /proc/sys/net/ipv4/conf/*/rp_filter; do "
+        "[ -e \"$setting\" ] || continue; "
+        "(echo 0 > \"$setting\") 2>/dev/null || true; "
+        "done; "
+        "forwarding=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo 0); "
+        "if [ \"$forwarding\" != \"1\" ]; then "
+        "echo 'router IP forwarding is disabled; Docker did not apply net.ipv4.ip_forward=1' >&2; "
+        "exit 1; "
+        "fi; "
+        "echo ip_forward=$forwarding"
+    )
+
+
+def install_route_command(cidr: str, via: str, network: str, netmask: str) -> str:
+    assignments = " ".join(
+        [
+            f"cidr={shlex.quote(cidr)}",
+            f"via={shlex.quote(via)}",
+            f"network={shlex.quote(network)}",
+            f"netmask={shlex.quote(netmask)}",
+        ]
+    )
+    return (
+        f"set -u; {assignments}; "
+        "if command -v ip >/dev/null 2>&1; then "
+        "if ip route replace \"$cidr\" via \"$via\" "
+        "&& ip route show \"$cidr\" | grep -F \"via $via\" >/dev/null; then "
+        "exit 0; "
+        "fi; "
+        "fi; "
+        "if command -v route >/dev/null 2>&1; then "
+        "route del -net \"$network\" netmask \"$netmask\" >/dev/null 2>&1 || true; "
+        "if route add -net \"$network\" netmask \"$netmask\" gw \"$via\" "
+        "&& route -n | awk '{print $1 \" \" $2}' | grep -F \"$network $via\" >/dev/null; then "
+        "exit 0; "
+        "fi; "
+        "fi; "
+        "echo \"failed to install route $cidr via $via\" >&2; "
+        "exit 1"
+    )
 
 
 def main() -> None:
