@@ -163,7 +163,7 @@ def deploy(environment: dict[str, Any], *, docker: str, replace: bool, project_o
         containers.append(deploy_host(docker, environment, host, project, env_run_dir, log_path, replace))
 
     apply_routes(docker, environment, project, log_path)
-    checks = verify_connections(docker, environment, containers, log_path)
+    checks = verify_connections(docker, environment, project, containers, log_path)
     network_names = [slug(network.get("name") or network["id"]) for network in networks]
     state = {
         "project": project,
@@ -326,6 +326,7 @@ def apply_routes(docker: str, environment: dict[str, Any], project: str, log_pat
 def verify_connections(
     docker: str,
     environment: dict[str, Any],
+    project: str,
     containers: list[dict[str, str]],
     log_path: Path,
 ) -> list[dict[str, Any]]:
@@ -341,15 +342,35 @@ def verify_connections(
         source = hosts[connection["from"]]
         target = hosts[connection["to"]]
         source_container = container_by_host[source["id"]]
+        target_container = container_by_host[target["id"]]
         target_address = target.get("ipAddresses", {}).get(target.get("primarySubnet")) or target["hostname"]
         url = f"http://{target_address}:{connection['port']}/"
-        command = f"wget -qO- --timeout=10 {url} >/tmp/cyblocks-http-check && head -c 120 /tmp/cyblocks-http-check"
+        command = http_check_command(url)
         result = run(
             [docker, "exec", source_container, "sh", "-lc", command],
             log_path=log_path,
             check=False,
             capture=True,
         )
+        output = (result.stdout or "").strip()
+        if result.returncode != 0:
+            output = "\n".join(
+                item
+                for item in [
+                    output,
+                    connection_diagnostics(
+                        docker,
+                        environment,
+                        project,
+                        source_container,
+                        target_container,
+                        target_address,
+                        connection["port"],
+                        log_path,
+                    ),
+                ]
+                if item
+            )
         checks.append(
             {
                 "connection": connection["id"],
@@ -358,7 +379,7 @@ def verify_connections(
                 "targetAddress": target_address,
                 "url": url,
                 "ok": result.returncode == 0,
-                "output": (result.stdout or "").strip(),
+                "output": output,
             }
         )
 
@@ -370,15 +391,35 @@ def verify_connections(
         source = hosts[check["from"]]
         target = hosts[check["to"]]
         source_container = container_by_host[source["id"]]
+        target_container = container_by_host[target["id"]]
         target_address = target.get("ipAddresses", {}).get(target.get("primarySubnet")) or target["hostname"]
         url = f"http://{target_address}:{check['port']}/"
-        command = f"wget -qO- --timeout=10 {url} >/tmp/cyblocks-http-check && head -c 120 /tmp/cyblocks-http-check"
+        command = http_check_command(url)
         result = run(
             [docker, "exec", source_container, "sh", "-lc", command],
             log_path=log_path,
             check=False,
             capture=True,
         )
+        output = (result.stdout or "").strip()
+        if result.returncode != 0:
+            output = "\n".join(
+                item
+                for item in [
+                    output,
+                    connection_diagnostics(
+                        docker,
+                        environment,
+                        project,
+                        source_container,
+                        target_container,
+                        target_address,
+                        check["port"],
+                        log_path,
+                    ),
+                ]
+                if item
+            )
         checks.append(
             {
                 "connection": check["id"],
@@ -387,14 +428,110 @@ def verify_connections(
                 "targetAddress": target_address,
                 "url": url,
                 "ok": result.returncode == 0,
-                "output": (result.stdout or "").strip(),
+                "output": output,
             }
         )
 
     failed = [check for check in checks if not check["ok"]]
     if failed:
-        raise SystemExit(f"{len(failed)} connection check(s) failed. See {log_path}")
+        first = failed[0]
+        raise SystemExit(
+            f"{len(failed)} connection check(s) failed. First failure: "
+            f"{first['from']} -> {first['to']} at {first['url']}. See {log_path}"
+        )
     return checks
+
+
+def http_check_command(url: str) -> str:
+    quoted_url = shlex.quote(url)
+    return (
+        f"url={quoted_url}; "
+        "rm -f /tmp/cyblocks-http-check /tmp/cyblocks-wget.err; "
+        "if wget -S -O /tmp/cyblocks-http-check --timeout=10 \"$url\" 2>/tmp/cyblocks-wget.err; then "
+        "head -c 120 /tmp/cyblocks-http-check; "
+        "else "
+        "status=$?; "
+        "cat /tmp/cyblocks-wget.err 2>/dev/null || true; "
+        "echo \"wget_exit=$status\"; "
+        "exit $status; "
+        "fi"
+    )
+
+
+def diagnostic_exec(docker: str, container: str, label: str, command: str, log_path: Path) -> str:
+    result = run(
+        [docker, "exec", container, "sh", "-lc", command],
+        log_path=log_path,
+        check=False,
+        capture=True,
+    )
+    output = (result.stdout or "").strip()
+    return f"--- {label} exit={result.returncode} ---\n{output}".rstrip()
+
+
+def connection_diagnostics(
+    docker: str,
+    environment: dict[str, Any],
+    project: str,
+    source_container: str,
+    target_container: str,
+    target_address: str,
+    target_port: int,
+    log_path: Path,
+) -> str:
+    sections = [
+        "Cyblocks connection diagnostics",
+        diagnostic_exec(
+            docker,
+            source_container,
+            f"{source_container} route to {target_address}",
+            f"ip route get {shlex.quote(target_address)} 2>&1 || true; ip route 2>&1 || route -n 2>&1 || true",
+            log_path,
+        ),
+        diagnostic_exec(
+            docker,
+            source_container,
+            f"{source_container} interfaces",
+            "ip -br addr 2>&1 || ip addr 2>&1 || true",
+            log_path,
+        ),
+        diagnostic_exec(
+            docker,
+            target_container,
+            f"{target_container} local HTTP",
+            f"wget -qO- --timeout=3 http://127.0.0.1:{target_port}/ 2>&1 | head -c 200",
+            log_path,
+        ),
+        diagnostic_exec(
+            docker,
+            target_container,
+            f"{target_container} interfaces/routes",
+            "ip -br addr 2>&1 || ip addr 2>&1 || true; ip route 2>&1 || route -n 2>&1 || true",
+            log_path,
+        ),
+    ]
+    for router in environment.get("routers", []):
+        router_container = container_name(project, router["name"])
+        sections.append(
+            diagnostic_exec(
+                docker,
+                router_container,
+                f"{router_container} forwarding/NAT",
+                "cat /proc/sys/net/ipv4/ip_forward 2>&1; "
+                "ip -br addr 2>&1 || ip addr 2>&1 || true; "
+                "ip route 2>&1 || route -n 2>&1 || true; "
+                "if command -v iptables >/dev/null 2>&1; then "
+                "iptables -S FORWARD 2>&1 || true; "
+                "iptables -t nat -S POSTROUTING 2>&1 || true; "
+                "else echo iptables=missing; fi",
+                log_path,
+            )
+        )
+
+    diagnostics = "\n".join(sections)
+    with log_path.open("a") as log:
+        log.write(diagnostics + "\n")
+    return diagnostics
 
 
 def cidr_netmask(cidr: str) -> str:
