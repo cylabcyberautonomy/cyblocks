@@ -8,7 +8,7 @@ Current flow:
 IDE graph JSON -> intermediate DSL JSON -> Docker networked containers
 ```
 
-This is not the final Docker or MHBench compiler. It is a runnable bridge for validating that host blocks and connectors can become a small environment.
+This is not the final MHBench/OpenStack compiler. It is a runnable Docker Engine bridge for validating that host blocks, router blocks, subnets, and connectors can become a small environment before the DSL is handed to MHBench-style generation.
 
 ## MHBench Shape
 
@@ -20,6 +20,40 @@ MHBench environment specs such as `../MHBench/environments/non-generated/equifax
 - `playbooks[]`
 
 Cyblocks keeps an intermediate DSL between the IDE and any target backend so the canvas does not become Docker-specific or MHBench-specific.
+
+## Local Server Startup
+
+Start Docker Engine first and verify the Docker CLI works.
+
+Linux:
+
+```bash
+sudo systemctl start docker
+docker info
+```
+
+macOS with Colima:
+
+```bash
+colima start --cpu 2 --memory 4 --disk 20
+docker info
+```
+
+Start the backend API from the repo root:
+
+```bash
+python3 backend/scripts/api_server.py
+```
+
+Start the React frontend in another terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Then open `http://127.0.0.1:5173/`. The `Quit` button stops both local dev servers.
 
 ## Three-Host HTTP Example
 

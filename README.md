@@ -1,47 +1,109 @@
 # cyblocks
 
-Visual block canvas experiments.
+Visual block canvas experiments for building environment graphs.
 
-Run the React prototype:
+The current prototype flow is:
 
-```bash
-cd frontend
-npm install
-npm run dev
+```text
+IDE canvas -> intermediate DSL -> local Docker Engine deployment
 ```
 
-Run the local compile/deploy API in another terminal when you want the frontend buttons to call the backend:
+The local Docker deployment is a development bridge. The longer-term target is for the IDE to emit DSLs that can be handed to MHBench/OpenStack environment generation, including the Ansible playbooks used by MHBench specs.
+
+## Quick Start
+
+Use two terminals from the repo root:
 
 ```bash
-python3 backend/scripts/api_server.py
+cd /path/to/cyblocks
 ```
 
-The backend expects the Docker CLI to reach a running Docker Engine. On Linux, start Docker with your distro's service manager and verify access before deploying:
+### 1. Start Docker Engine
+
+The backend uses the Docker CLI. Any setup is fine as long as this works:
+
+```bash
+docker info
+```
+
+Linux:
 
 ```bash
 sudo systemctl start docker
 docker info
 ```
 
-Then open the printed local frontend URL. The prototype is intentionally nondescript: drag host and router blocks onto a plain board, edit VM-style host attributes, connect block ports, use `Download IDE JSON` to save the visible graph, use `Compile`, `Deploy`, `Status`, and `End Deployment` to work through the local backend, or use `Quit` to stop the local frontend/backend dev servers.
-
-To start from the frontend and run the local three-host experiment:
+macOS with Colima:
 
 ```bash
+colima start --cpu 2 --memory 4 --disk 20
+docker info
+```
+
+If you use a custom Docker context or `DOCKER_HOST`, set that before starting the backend.
+
+### 2. Start The Backend API
+
+Terminal 1:
+
+```bash
+cd /path/to/cyblocks
+python3 backend/scripts/api_server.py
+```
+
+The API listens on:
+
+```text
+http://127.0.0.1:8787
+```
+
+### 3. Start The Frontend
+
+Terminal 2:
+
+```bash
+cd /path/to/cyblocks
 cd frontend
+npm install
 npm run dev
 ```
 
-In the browser, click `Three Host`, adjust the board if needed, then either click `Compile` and `Deploy` or click `Download IDE JSON`. The current sample includes three hosts connected through one router, which compiles into three Docker bridge subnets plus one router container. From the repo root, the downloaded graph can also be run manually:
+Open:
+
+```text
+http://127.0.0.1:5173/
+```
+
+## Using The Prototype
+
+In the browser:
+
+- `Three Host` loads the routed three-host sample.
+- `Compile` writes the visible canvas to the intermediate DSL.
+- `Deploy` creates the local Docker containers/networks.
+- `Status` shows compiled subnets and live Docker network attachments.
+- `End Deployment` removes deployed Docker containers and networks.
+- `Quit` stops both the frontend dev server and backend API server.
+- `Download IDE JSON` saves the visible canvas graph.
+
+The current sample includes three hosts connected through one router, which compiles into three Docker bridge subnets plus one router container.
+
+## Manual Example
 
 ```bash
 backend/scripts/run_three_host_example.sh ~/Downloads/routed-three-host.ide.json
 ```
 
-Stop it with:
+Or run the checked-in routed example:
+
+```bash
+backend/scripts/run_three_host_example.sh backend/examples/routed-three-host.ide.json
+```
+
+Stop a deployment manually with:
 
 ```bash
 python3 backend/scripts/teardown_docker.py backend/generated/routed-three-host.intermediate.json
 ```
 
-Design notes for the future Docker/container mapping live in [docs/docker-canvas-ide-chat-helper.md](/Users/mycomputer/Documents/GitHub/cyblocks/docs/docker-canvas-ide-chat-helper.md).
+Design notes for the future Docker/container mapping live in [docs/docker-canvas-ide-chat-helper.md](docs/docker-canvas-ide-chat-helper.md).
