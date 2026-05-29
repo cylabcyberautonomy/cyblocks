@@ -79,7 +79,7 @@ http://127.0.0.1:5173/
 
 In the browser:
 
-- `Three Host` loads the routed three-host sample.
+- `Vulnerable Hosts` loads the routed sample with service, CVE, and misconfiguration blocks.
 - `Compile` writes the visible canvas to the intermediate DSL.
 - `Deploy` creates the local Docker containers/networks.
 - `Status` shows compiled subnets and live Docker network attachments.
@@ -87,24 +87,34 @@ In the browser:
 - `Quit` stops both the frontend dev server and backend API server.
 - `Download IDE JSON` saves the visible canvas graph.
 
-The current sample includes three hosts connected through one router, which compiles into three Docker bridge subnets plus one router container.
+The current sample includes three hosts connected through one router, five service blocks, three CVE blocks, and two misconfiguration blocks. CVEs attach to services, misconfigurations get their own visual shape, and directed access links model one-way multi-host paths such as a web host holding a database SSH key.
 
 ## Manual Example
 
 ```bash
-backend/scripts/run_three_host_example.sh ~/Downloads/routed-three-host.ide.json
+backend/scripts/run_three_host_example.sh ~/Downloads/vulnerable-hosts.ide.json
 ```
 
-Or run the checked-in routed example:
+Or compile the checked-in vulnerable-hosts example:
 
 ```bash
-backend/scripts/run_three_host_example.sh backend/examples/routed-three-host.ide.json
+python3 backend/scripts/compile_ide_to_intermediate.py \
+  backend/examples/vulnerable-hosts.ide.json \
+  --out backend/generated/vulnerable-hosts.intermediate.json
 ```
 
 Stop a deployment manually with:
 
 ```bash
-python3 backend/scripts/teardown_docker.py backend/generated/routed-three-host.intermediate.json
+python3 backend/scripts/teardown_docker.py backend/generated/vulnerable-hosts.intermediate.json
 ```
 
 Design notes for the future Docker/container mapping live in [docs/docker-canvas-ide-chat-helper.md](docs/docker-canvas-ide-chat-helper.md).
+
+## More Docs
+
+- [Vulnerable hosts changes](docs/vulnerable-hosts-example/README.md)
+- [Frontend canvas](frontend/README.md)
+- [Backend compilation](backend/docs/compilation/README.md)
+- [Intermediate DSL](backend/docs/dsl/README.md)
+- [Backend deploy](backend/docs/deploy/README.md)

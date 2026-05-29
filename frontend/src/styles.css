@@ -255,8 +255,31 @@ h2 {
   stroke-width: 2;
 }
 
+.connection-topology {
+  stroke: #4b5563;
+  stroke-width: 3;
+  stroke-dasharray: 8 4;
+}
+
+.connection-service {
+  stroke: #1f2937;
+}
+
+.connection-vulnerability {
+  stroke: #9f1239;
+}
+
+.connection-access {
+  stroke: #7c3aed;
+  stroke-dasharray: 4 3;
+}
+
 .connection-path.is-selected {
   stroke-width: 3;
+}
+
+.connection-topology.is-selected {
+  stroke-width: 4;
 }
 
 .connection-hitbox {
@@ -274,9 +297,37 @@ h2 {
 
 .connection-label {
   fill: var(--code);
+  stroke: #fbfcff;
+  stroke-linejoin: round;
+  stroke-width: 4px;
   font-size: 0.68rem;
   font-weight: 700;
+  paint-order: stroke fill;
   pointer-events: none;
+}
+
+.connection-label-topology {
+  fill: #374151;
+}
+
+.connection-label-vulnerability {
+  fill: #9f1239;
+}
+
+.connection-label-access {
+  fill: #6d28d9;
+}
+
+.connection-marker path {
+  fill: var(--code);
+}
+
+.connection-marker-vulnerability path {
+  fill: #9f1239;
+}
+
+.connection-marker-access path {
+  fill: #7c3aed;
 }
 
 .connection-text-path {
@@ -295,6 +346,7 @@ h2 {
   background: var(--block-color);
   font-size: 0.78rem;
   font-weight: 800;
+  isolation: isolate;
   text-align: center;
   overflow-wrap: anywhere;
   pointer-events: auto;
@@ -304,6 +356,75 @@ h2 {
   border-color: var(--code);
   border-radius: 999px;
   background: var(--block-color);
+}
+
+.block-service {
+  padding-inline: 24px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.block-vulnerability {
+  padding-inline: 16px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.block-misconfiguration {
+  padding-inline: 13px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.block-service::before,
+.block-vulnerability::before,
+.block-misconfiguration::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border: 1px solid var(--line);
+  background: var(--block-color);
+  pointer-events: none;
+}
+
+.block-service::before {
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+
+.block-vulnerability::before {
+  clip-path: polygon(18% 0, 100% 0, 100% 72%, 50% 100%, 0 72%, 0 28%);
+}
+
+.block-misconfiguration::before {
+  border-style: dashed;
+  clip-path: polygon(0 0, 86% 0, 100% 14%, 100% 100%, 0 100%);
+}
+
+.block-misconfiguration::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 18px;
+  height: 18px;
+  border-left: 1px solid rgba(23, 32, 51, 0.32);
+  border-bottom: 1px solid rgba(23, 32, 51, 0.32);
+  background: rgba(255, 255, 255, 0.38);
+  clip-path: polygon(0 0, 100% 100%, 0 100%);
+  pointer-events: none;
+}
+
+.block-service:hover,
+.block-vulnerability:hover,
+.block-misconfiguration:hover {
+  background: transparent;
+}
+
+.block-service:hover::before,
+.block-vulnerability:hover::before,
+.block-misconfiguration:hover::before {
+  border-color: var(--code);
 }
 
 .block-router .block-label {

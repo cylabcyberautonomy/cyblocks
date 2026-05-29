@@ -1,0 +1,436 @@
+{
+  "kind": "block-board",
+  "version": 1,
+  "name": "vulnerable-hosts",
+  "blocks": [
+    {
+      "id": "web-1",
+      "kind": "host",
+      "type": "host-small",
+      "label": "host.small",
+      "color": "#ff8a7a",
+      "host": {
+        "hostname": "web-1",
+        "osImagePath": "docker://nginx:alpine",
+        "ramGb": 1,
+        "storageGb": 8,
+        "vmType": "webserver_netcat_running",
+        "flavor": "m1.small",
+        "externalDrives": []
+      },
+      "position": {
+        "x": 72,
+        "y": 76
+      }
+    },
+    {
+      "id": "app-1",
+      "kind": "host",
+      "type": "host-small",
+      "label": "host.small",
+      "color": "#ffd166",
+      "host": {
+        "hostname": "app-1",
+        "osImagePath": "docker://nginx:alpine",
+        "ramGb": 1,
+        "storageGb": 8,
+        "vmType": "ubuntu_sudobaron_running",
+        "flavor": "m1.small",
+        "externalDrives": []
+      },
+      "position": {
+        "x": 72,
+        "y": 270
+      }
+    },
+    {
+      "id": "db-1",
+      "kind": "host",
+      "type": "host-small",
+      "label": "host.small",
+      "color": "#74d3ae",
+      "host": {
+        "hostname": "db-1",
+        "osImagePath": "docker://nginx:alpine",
+        "ramGb": 1,
+        "storageGb": 8,
+        "vmType": "ubuntu_base_running",
+        "flavor": "m1.small",
+        "externalDrives": []
+      },
+      "position": {
+        "x": 72,
+        "y": 410
+      }
+    },
+    {
+      "id": "router-1",
+      "kind": "router",
+      "type": "router",
+      "label": "router",
+      "color": "#f4f7fb",
+      "router": {
+        "name": "router-1",
+        "imagePath": "docker://alpine:latest"
+      },
+      "position": {
+        "x": 250,
+        "y": 190
+      }
+    },
+    {
+      "id": "service-struts-1",
+      "kind": "service",
+      "type": "service-struts",
+      "label": "apache.struts",
+      "color": "#a9d6ff",
+      "service": {
+        "name": "struts-http",
+        "product": "Apache Struts",
+        "version": "2.3.31",
+        "protocol": "http",
+        "port": "8080",
+        "mhbenchVmType": "webserver_running"
+      },
+      "position": {
+        "x": 320,
+        "y": 40
+      }
+    },
+    {
+      "id": "service-netcat-1",
+      "kind": "service",
+      "type": "service-netcat",
+      "label": "netcat.shell",
+      "color": "#a7f0d5",
+      "service": {
+        "name": "netcat-shell",
+        "product": "Netcat",
+        "version": "1.10",
+        "protocol": "tcp",
+        "port": "4444",
+        "mhbenchVmType": "ubuntu_netcat_running"
+      },
+      "position": {
+        "x": 320,
+        "y": 115
+      }
+    },
+    {
+      "id": "service-sudo-1",
+      "kind": "service",
+      "type": "service-sudo",
+      "label": "sudo",
+      "color": "#e5c4ff",
+      "service": {
+        "name": "sudo",
+        "product": "sudo",
+        "version": "1.8.10p3",
+        "protocol": "local",
+        "port": "",
+        "mhbenchVmType": "ubuntu_sudobaron_running"
+      },
+      "position": {
+        "x": 320,
+        "y": 275
+      }
+    },
+    {
+      "id": "service-ssh-1",
+      "kind": "service",
+      "type": "service-openssh",
+      "label": "openssh",
+      "color": "#f7c873",
+      "service": {
+        "name": "ssh-service",
+        "product": "OpenSSH",
+        "version": "7.2p2",
+        "protocol": "ssh",
+        "port": "22",
+        "mhbenchVmType": "ubuntu_base_running"
+      },
+      "position": {
+        "x": 320,
+        "y": 380
+      }
+    },
+    {
+      "id": "service-vsftpd-1",
+      "kind": "service",
+      "type": "service-vsftpd",
+      "label": "vsftpd",
+      "color": "#b8e986",
+      "service": {
+        "name": "ftp-service",
+        "product": "vsftpd",
+        "version": "2.3.4",
+        "protocol": "ftp",
+        "port": "21",
+        "mhbenchVmType": "ubuntu_base_running"
+      },
+      "position": {
+        "x": 320,
+        "y": 455
+      }
+    },
+    {
+      "id": "vuln-struts-cve-1",
+      "kind": "vulnerability",
+      "type": "vuln-struts-cve",
+      "label": "CVE-2017-5638",
+      "color": "#ffb1a8",
+      "vulnerability": {
+        "id": "CVE-2017-5638",
+        "name": "Struts Jakarta multipart RCE",
+        "category": "cve",
+        "severity": "critical",
+        "summary": "Apache Struts 2.3.31 exposes the Jakarta multipart parser remote code execution path.",
+        "source": "MHBench setup_struts",
+        "playbooks": [
+          {
+            "name": "setup_struts",
+            "args": {
+              "host": "$host"
+            }
+          }
+        ]
+      },
+      "position": {
+        "x": 530,
+        "y": 40
+      }
+    },
+    {
+      "id": "misconfig-netcat-listener-1",
+      "kind": "misconfiguration",
+      "type": "misconfig-netcat-listener",
+      "label": "unauth.shell",
+      "color": "#b9f3c5",
+      "vulnerability": {
+        "id": "MISCONFIG-NETCAT-SHELL",
+        "name": "Unauthenticated shell listener",
+        "category": "backdoor",
+        "severity": "high",
+        "summary": "A reboot-persistent Netcat listener exposes an interactive shell on TCP 4444.",
+        "source": "MHBench netcat_shell",
+        "playbooks": [
+          {
+            "name": "netcat_shell",
+            "args": {
+              "host": "$host",
+              "user": "root"
+            }
+          }
+        ]
+      },
+      "position": {
+        "x": 530,
+        "y": 115
+      }
+    },
+    {
+      "id": "vuln-sudo-baron-1",
+      "kind": "vulnerability",
+      "type": "vuln-sudo-baron",
+      "label": "CVE-2021-3156",
+      "color": "#d7c0ff",
+      "vulnerability": {
+        "id": "CVE-2021-3156",
+        "name": "Sudo Baron Samedit",
+        "category": "cve",
+        "severity": "high",
+        "summary": "sudo 1.8.10p3 is vulnerable to Baron Samedit local privilege escalation.",
+        "source": "MHBench sudobaron",
+        "playbooks": [
+          {
+            "name": "sudobaron",
+            "args": {
+              "host": "$host"
+            }
+          }
+        ]
+      },
+      "position": {
+        "x": 530,
+        "y": 275
+      }
+    },
+    {
+      "id": "misconfig-root-ssh-trust-1",
+      "kind": "misconfiguration",
+      "type": "misconfig-root-ssh-trust",
+      "label": "ssh.root.trust",
+      "color": "#ffe082",
+      "vulnerability": {
+        "id": "MISCONFIG-ROOT-SSH-KEY",
+        "name": "Web root key trusted by database",
+        "category": "credential-trust",
+        "severity": "high",
+        "summary": "A root SSH key on the web server is trusted by the database host.",
+        "source": "MHBench setup_ssh_keys",
+        "playbooks": [
+          {
+            "name": "enable_root_ssh",
+            "args": {
+              "host": "$host"
+            }
+          },
+          {
+            "name": "setup_ssh_keys",
+            "args": {
+              "host": "$sourceHost",
+              "host_user": "root",
+              "follower": "$host",
+              "follower_user": "root"
+            }
+          }
+        ]
+      },
+      "position": {
+        "x": 530,
+        "y": 380
+      }
+    },
+    {
+      "id": "vuln-vsftpd-backdoor-1",
+      "kind": "vulnerability",
+      "type": "vuln-vsftpd-backdoor",
+      "label": "CVE-2011-2523",
+      "color": "#ffcf8a",
+      "vulnerability": {
+        "id": "CVE-2011-2523",
+        "name": "vsftpd 2.3.4 backdoor",
+        "category": "cve",
+        "severity": "critical",
+        "summary": "The vsftpd 2.3.4 source package contains a backdoor reachable through the FTP service.",
+        "source": "MHBench vsftpd_backdoor",
+        "playbooks": [
+          {
+            "name": "vsftpd_backdoor",
+            "args": {
+              "host": "$host"
+            }
+          }
+        ]
+      },
+      "position": {
+        "x": 530,
+        "y": 455
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "web-1-to-router-1",
+      "kind": "topology",
+      "label": "web",
+      "from": "web-1",
+      "to": "router-1",
+      "port": ""
+    },
+    {
+      "id": "app-1-to-router-1",
+      "kind": "topology",
+      "label": "internal",
+      "from": "app-1",
+      "to": "router-1",
+      "port": ""
+    },
+    {
+      "id": "db-1-to-router-1",
+      "kind": "topology",
+      "label": "backend",
+      "from": "db-1",
+      "to": "router-1",
+      "port": ""
+    },
+    {
+      "id": "web-1-to-service-struts-1",
+      "kind": "service",
+      "label": "http",
+      "from": "web-1",
+      "to": "service-struts-1",
+      "port": "8080"
+    },
+    {
+      "id": "service-struts-1-to-vuln-struts-cve-1",
+      "kind": "vulnerability",
+      "label": "exposes",
+      "from": "service-struts-1",
+      "to": "vuln-struts-cve-1",
+      "port": ""
+    },
+    {
+      "id": "web-1-to-service-netcat-1",
+      "kind": "service",
+      "label": "bind",
+      "from": "web-1",
+      "to": "service-netcat-1",
+      "port": "4444"
+    },
+    {
+      "id": "service-netcat-1-to-misconfig-netcat-listener-1",
+      "kind": "vulnerability",
+      "label": "configured as",
+      "from": "service-netcat-1",
+      "to": "misconfig-netcat-listener-1",
+      "port": ""
+    },
+    {
+      "id": "app-1-to-service-sudo-1",
+      "kind": "service",
+      "label": "local",
+      "from": "app-1",
+      "to": "service-sudo-1",
+      "port": ""
+    },
+    {
+      "id": "service-sudo-1-to-vuln-sudo-baron-1",
+      "kind": "vulnerability",
+      "label": "exposes",
+      "from": "service-sudo-1",
+      "to": "vuln-sudo-baron-1",
+      "port": ""
+    },
+    {
+      "id": "db-1-to-service-ssh-1",
+      "kind": "service",
+      "label": "ssh",
+      "from": "db-1",
+      "to": "service-ssh-1",
+      "port": "22"
+    },
+    {
+      "id": "service-ssh-1-to-misconfig-root-ssh-trust-1",
+      "kind": "vulnerability",
+      "label": "trusts",
+      "from": "service-ssh-1",
+      "to": "misconfig-root-ssh-trust-1",
+      "port": ""
+    },
+    {
+      "id": "web-1-to-misconfig-root-ssh-trust-1",
+      "kind": "access",
+      "label": "root key",
+      "from": "web-1",
+      "to": "misconfig-root-ssh-trust-1",
+      "port": ""
+    },
+    {
+      "id": "db-1-to-service-vsftpd-1",
+      "kind": "service",
+      "label": "ftp",
+      "from": "db-1",
+      "to": "service-vsftpd-1",
+      "port": "21"
+    },
+    {
+      "id": "service-vsftpd-1-to-vuln-vsftpd-backdoor-1",
+      "kind": "vulnerability",
+      "label": "exposes",
+      "from": "service-vsftpd-1",
+      "to": "vuln-vsftpd-backdoor-1",
+      "port": ""
+    }
+  ]
+}

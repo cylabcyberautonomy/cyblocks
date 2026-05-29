@@ -4,12 +4,12 @@ import { Activity, Code2, FileDown, Power, RefreshCcw, Rocket, Square, X } from 
 const BLOCK_WIDTH = 132;
 const BLOCK_HEIGHT = 56;
 const API_BASE_URL = import.meta.env.VITE_CYBLOCKS_API_URL || "http://127.0.0.1:8787";
-const DEFAULT_BOARD_NAME = "routed-three-host";
+const DEFAULT_BOARD_NAME = "vulnerable-hosts";
 const DEFAULT_OS_IMAGE_PATH = "docker://nginx:alpine";
 const DEFAULT_ROUTER_IMAGE_PATH = "docker://alpine:latest";
 const DEFAULT_CONNECTION_LABEL = "http";
 const DEFAULT_CONNECTION_PORT = "80";
-const STORAGE_KEY = "simple-block-board-state-v6";
+const STORAGE_KEY = "simple-block-board-state-v8";
 
 const BLOCK_TYPES = [
   { id: "host-small", kind: "host", label: "host.small", color: "#ff8a7a", ramGb: 2, storageGb: 32 },
@@ -17,6 +17,158 @@ const BLOCK_TYPES = [
   { id: "host-large", kind: "host", label: "host.large", color: "#74d3ae", ramGb: 8, storageGb: 128 },
   { id: "host-storage", kind: "host", label: "host.storage", color: "#8fb8ff", ramGb: 4, storageGb: 256 },
   { id: "router", kind: "router", label: "router", color: "#f4f7fb" },
+  {
+    id: "service-struts",
+    kind: "service",
+    label: "apache.struts",
+    color: "#a9d6ff",
+    service: {
+      name: "struts-http",
+      product: "Apache Struts",
+      version: "2.3.31",
+      protocol: "http",
+      port: "8080",
+      mhbenchVmType: "webserver_running"
+    }
+  },
+  {
+    id: "service-vsftpd",
+    kind: "service",
+    label: "vsftpd",
+    color: "#b8e986",
+    service: {
+      name: "ftp-service",
+      product: "vsftpd",
+      version: "2.3.4",
+      protocol: "ftp",
+      port: "21",
+      mhbenchVmType: "ubuntu_base_running"
+    }
+  },
+  {
+    id: "service-openssh",
+    kind: "service",
+    label: "openssh",
+    color: "#f7c873",
+    service: {
+      name: "ssh-service",
+      product: "OpenSSH",
+      version: "7.2p2",
+      protocol: "ssh",
+      port: "22",
+      mhbenchVmType: "ubuntu_base_running"
+    }
+  },
+  {
+    id: "service-netcat",
+    kind: "service",
+    label: "netcat.shell",
+    color: "#a7f0d5",
+    service: {
+      name: "netcat-shell",
+      product: "Netcat",
+      version: "1.10",
+      protocol: "tcp",
+      port: "4444",
+      mhbenchVmType: "ubuntu_netcat_running"
+    }
+  },
+  {
+    id: "service-sudo",
+    kind: "service",
+    label: "sudo",
+    color: "#e5c4ff",
+    service: {
+      name: "sudo",
+      product: "sudo",
+      version: "1.8.10p3",
+      protocol: "local",
+      port: "",
+      mhbenchVmType: "ubuntu_sudobaron_running"
+    }
+  },
+  {
+    id: "vuln-struts-cve",
+    kind: "vulnerability",
+    label: "CVE-2017-5638",
+    color: "#ffb1a8",
+    vulnerability: {
+      id: "CVE-2017-5638",
+      name: "Struts Jakarta multipart RCE",
+      category: "cve",
+      severity: "critical",
+      summary: "Apache Struts 2.3.31 exposes the Jakarta multipart parser remote code execution path.",
+      source: "MHBench setup_struts",
+      playbooks: [{ name: "setup_struts", args: { host: "$host" } }]
+    }
+  },
+  {
+    id: "vuln-vsftpd-backdoor",
+    kind: "vulnerability",
+    label: "CVE-2011-2523",
+    color: "#ffcf8a",
+    vulnerability: {
+      id: "CVE-2011-2523",
+      name: "vsftpd 2.3.4 backdoor",
+      category: "cve",
+      severity: "critical",
+      summary: "The vsftpd 2.3.4 source package contains a backdoor reachable through the FTP service.",
+      source: "MHBench vsftpd_backdoor",
+      playbooks: [{ name: "vsftpd_backdoor", args: { host: "$host" } }]
+    }
+  },
+  {
+    id: "misconfig-root-ssh-trust",
+    kind: "misconfiguration",
+    label: "ssh.root.trust",
+    color: "#ffe082",
+    vulnerability: {
+      id: "MISCONFIG-ROOT-SSH-KEY",
+      name: "Web root key trusted by database",
+      category: "credential-trust",
+      severity: "high",
+      summary: "A root SSH key on the web server is trusted by the database host.",
+      source: "MHBench setup_ssh_keys",
+      sourceHostId: "",
+      playbooks: [
+        { name: "enable_root_ssh", args: { host: "$host" } },
+        {
+          name: "setup_ssh_keys",
+          args: { host: "$sourceHost", host_user: "root", follower: "$host", follower_user: "root" }
+        }
+      ]
+    }
+  },
+  {
+    id: "misconfig-netcat-listener",
+    kind: "misconfiguration",
+    label: "unauth.shell",
+    color: "#b9f3c5",
+    vulnerability: {
+      id: "MISCONFIG-NETCAT-SHELL",
+      name: "Unauthenticated shell listener",
+      category: "backdoor",
+      severity: "high",
+      summary: "A reboot-persistent Netcat listener exposes an interactive shell on TCP 4444.",
+      source: "MHBench netcat_shell",
+      playbooks: [{ name: "netcat_shell", args: { host: "$host", user: "root" } }]
+    }
+  },
+  {
+    id: "vuln-sudo-baron",
+    kind: "vulnerability",
+    label: "CVE-2021-3156",
+    color: "#d7c0ff",
+    vulnerability: {
+      id: "CVE-2021-3156",
+      name: "Sudo Baron Samedit",
+      category: "cve",
+      severity: "high",
+      summary: "sudo 1.8.10p3 is vulnerable to Baron Samedit local privilege escalation.",
+      source: "MHBench sudobaron",
+      playbooks: [{ name: "sudobaron", args: { host: "$host" } }]
+    }
+  },
   { id: "host-custom", kind: "host", label: "host.custom", color: "#d7a8ff", ramGb: 4, storageGb: 64 }
 ];
 
@@ -48,10 +200,12 @@ function loadCanvas() {
       return fallback;
     }
 
+    const blocks = normalizeBlocks(Array.isArray(parsed?.blocks) ? parsed.blocks : []);
+
     return {
       name: typeof parsed?.name === "string" && parsed.name.trim() ? parsed.name : fallback.name,
-      blocks: normalizeBlocks(Array.isArray(parsed?.blocks) ? parsed.blocks : []),
-      connections: normalizeConnections(Array.isArray(parsed?.connections) ? parsed.connections : [])
+      blocks,
+      connections: normalizeConnections(Array.isArray(parsed?.connections) ? parsed.connections : [], blocks)
     };
   } catch {
     return fallback;
@@ -77,11 +231,42 @@ function createRouterDefaults(index = 1) {
   };
 }
 
+function createServiceDefaults(typeId, index = 1) {
+  const type = BLOCK_TYPE_MAP[typeId] || defaultTypeForKind("service");
+  const service = type.service || {};
+
+  return {
+    name: service.name || `service-${index}`,
+    product: service.product || type.label || "service",
+    version: service.version || "1.0.0",
+    protocol: service.protocol || "tcp",
+    port: service.port ?? "",
+    mhbenchVmType: service.mhbenchVmType || ""
+  };
+}
+
+function createVulnerabilityDefaults(typeId, index = 1) {
+  const type = BLOCK_TYPE_MAP[typeId] || defaultTypeForKind("vulnerability");
+  const vulnerability = type.vulnerability || {};
+
+  return {
+    id: vulnerability.id || `VULN-${index}`,
+    name: vulnerability.name || type.label || `vulnerability-${index}`,
+    category: vulnerability.category || "cve",
+    severity: vulnerability.severity || "medium",
+    summary: vulnerability.summary || "",
+    source: vulnerability.source || "",
+    sourceHostId: vulnerability.sourceHostId || "",
+    playbooks: Array.isArray(vulnerability.playbooks)
+      ? structuredClone(vulnerability.playbooks)
+      : []
+  };
+}
+
 function normalizeBlocks(blocks) {
   return blocks.map((block, index) => {
-    const type = BLOCK_TYPE_MAP[block.type] || BLOCK_TYPES[0];
-    const defaults = createHostDefaults(type.id, index + 1);
-    const kind = block.kind || block.nodeType || type.kind || "host";
+    const kind = blockKind(block);
+    const type = BLOCK_TYPE_MAP[block.type] || defaultTypeForKind(kind);
 
     if (kind === "router") {
       const routerDefaults = createRouterDefaults(index + 1);
@@ -98,6 +283,49 @@ function normalizeBlocks(blocks) {
       };
     }
 
+    if (kind === "service") {
+      const serviceDefaults = createServiceDefaults(type.id, index + 1);
+      return {
+        ...block,
+        kind: "service",
+        type: type.id,
+        label: block.label || type.label,
+        color: block.color || type.color,
+        service: {
+          name: block.service?.name || block.name || serviceDefaults.name,
+          product: block.service?.product || serviceDefaults.product,
+          version: block.service?.version || serviceDefaults.version,
+          protocol: block.service?.protocol || serviceDefaults.protocol,
+          port: block.service?.port ?? serviceDefaults.port,
+          mhbenchVmType: block.service?.mhbenchVmType || block.service?.vmType || serviceDefaults.mhbenchVmType
+        }
+      };
+    }
+
+    if (isFindingKind(kind)) {
+      const vulnerabilityDefaults = createVulnerabilityDefaults(type.id, index + 1);
+      return {
+        ...block,
+        kind,
+        type: type.id,
+        label: block.label || type.label,
+        color: block.color || type.color,
+        vulnerability: {
+          id: block.vulnerability?.id || block.vulnerability?.cve || vulnerabilityDefaults.id,
+          name: block.vulnerability?.name || block.name || vulnerabilityDefaults.name,
+          category: block.vulnerability?.category || vulnerabilityDefaults.category,
+          severity: block.vulnerability?.severity || vulnerabilityDefaults.severity,
+          summary: block.vulnerability?.summary || block.vulnerability?.description || vulnerabilityDefaults.summary,
+          source: block.vulnerability?.source || vulnerabilityDefaults.source,
+          sourceHostId: block.vulnerability?.sourceHostId || vulnerabilityDefaults.sourceHostId,
+          playbooks: Array.isArray(block.vulnerability?.playbooks)
+            ? block.vulnerability.playbooks
+            : vulnerabilityDefaults.playbooks
+        }
+      };
+    }
+
+    const defaults = createHostDefaults(type.id, index + 1);
     return {
       ...block,
       kind: "host",
@@ -109,6 +337,8 @@ function normalizeBlocks(blocks) {
         osImagePath: block.host?.osImagePath || block.osImagePath || defaults.osImagePath,
         ramGb: numberOrDefault(block.host?.ramGb ?? block.ramGb, defaults.ramGb),
         storageGb: numberOrDefault(block.host?.storageGb ?? block.storageGb, defaults.storageGb),
+        vmType: block.host?.vmType || block.vmType || "",
+        flavor: block.host?.flavor || block.flavor || "",
         externalDrives: Array.isArray(block.host?.externalDrives)
           ? block.host.externalDrives
           : Array.isArray(block.externalDrives)
@@ -119,14 +349,19 @@ function normalizeBlocks(blocks) {
   });
 }
 
-function normalizeConnections(connections) {
+function normalizeConnections(connections, blocks = []) {
   return connections.map((connection, index) => {
-    const kind = connection.kind || "service";
+    const kind = normalizeConnectionKind(connection.kind || inferConnectionKind(connection.from, connection.to, blocks));
+    const from = blocks.find((block) => block.id === connection.from);
+    const to = blocks.find((block) => block.id === connection.to);
+    const service = [from, to].find((block) => blockKind(block) === "service");
+    const defaultPort = service?.service?.port || DEFAULT_CONNECTION_PORT;
+
     return {
       ...connection,
       kind,
-      label: connection.label || (kind === "topology" ? `link.${index + 1}` : index === 0 ? DEFAULT_CONNECTION_LABEL : `${DEFAULT_CONNECTION_LABEL}.${index + 1}`),
-      port: kind === "topology" ? "" : String(connection.port || DEFAULT_CONNECTION_PORT)
+      label: connection.label || defaultConnectionLabel(kind, index, service),
+      port: kind === "service" ? String(connection.port ?? defaultPort) : ""
     };
   });
 }
@@ -263,6 +498,10 @@ function App() {
       };
       if (kind === "router") {
         block.router = createRouterDefaults(nextIndex);
+      } else if (kind === "service") {
+        block.service = createServiceDefaults(type.id, nextIndex);
+      } else if (kind === "vulnerability") {
+        block.vulnerability = createVulnerabilityDefaults(type.id, nextIndex);
       } else {
         block.host = createHostDefaults(type.id, nextIndex);
       }
@@ -345,21 +584,18 @@ function App() {
             const connectionId = `connection-${Date.now()}-${Math.round(Math.random() * 999)}`;
             const source = blocks.find((block) => block.id === sourceId);
             const targetBlock = blocks.find((block) => block.id === targetId);
-            const isTopology = blockKind(source) === "router" || blockKind(targetBlock) === "router";
+            const kind = inferConnectionKind(sourceId, targetId, blocks);
+            const service = [source, targetBlock].find((block) => blockKind(block) === "service");
             setSelectedConnectionId(connectionId);
             return [
               ...current,
               {
                 id: connectionId,
-                kind: isTopology ? "topology" : "service",
-                label: isTopology
-                  ? `link.${current.length + 1}`
-                  : current.length === 0
-                    ? DEFAULT_CONNECTION_LABEL
-                    : `${DEFAULT_CONNECTION_LABEL}.${current.length + 1}`,
+                kind,
+                label: defaultConnectionLabel(kind, current.length, service),
                 from: sourceId,
                 to: targetId,
-                port: isTopology ? "" : DEFAULT_CONNECTION_PORT
+                port: kind === "service" ? String(service?.service?.port || DEFAULT_CONNECTION_PORT) : ""
               }
             ];
           });
@@ -503,6 +739,46 @@ function App() {
     );
   }
 
+  function updateSelectedBlockService(patch) {
+    if (!selectedBlock) {
+      return;
+    }
+
+    setBlocks((current) =>
+      current.map((block) =>
+        block.id === selectedBlock.id
+          ? {
+              ...block,
+              service: {
+                ...block.service,
+                ...patch
+              }
+            }
+          : block
+      )
+    );
+  }
+
+  function updateSelectedBlockVulnerability(patch) {
+    if (!selectedBlock) {
+      return;
+    }
+
+    setBlocks((current) =>
+      current.map((block) =>
+        block.id === selectedBlock.id
+          ? {
+              ...block,
+              vulnerability: {
+                ...block.vulnerability,
+                ...patch
+              }
+            }
+          : block
+      )
+    );
+  }
+
   function updateSelectedConnection(patch) {
     if (!selectedConnection) {
       return;
@@ -555,6 +831,17 @@ function App() {
         ...copiedBlock.router,
         name: `${copiedBlock.router.name}-copy`
       };
+    } else if (blockKind(copiedBlock) === "service") {
+      block.service = {
+        ...copiedBlock.service,
+        name: `${copiedBlock.service.name}-copy`
+      };
+    } else if (blockKind(copiedBlock) === "vulnerability") {
+      block.vulnerability = {
+        ...copiedBlock.vulnerability,
+        id: `${copiedBlock.vulnerability.id}-copy`,
+        name: `${copiedBlock.vulnerability.name} copy`
+      };
     } else {
       block.host = {
         ...copiedBlock.host,
@@ -584,7 +871,7 @@ function App() {
     setConnections(sample.connections);
     setSelectedBlockId(sample.blocks[0]?.id || null);
     setSelectedConnectionId(null);
-    setStatus("Loaded three-host graph");
+    setStatus("Loaded vulnerable-host graph");
   }
 
   function buildVisibleGraph() {
@@ -630,6 +917,36 @@ function App() {
           };
         }
 
+        if (blockKind(block) === "service") {
+          return {
+            ...base,
+            service: {
+              name: block.service.name,
+              product: block.service.product,
+              version: block.service.version,
+              protocol: block.service.protocol,
+              port: block.service.port,
+              mhbenchVmType: block.service.mhbenchVmType
+            }
+          };
+        }
+
+        if (isFindingKind(blockKind(block))) {
+          return {
+            ...base,
+            vulnerability: {
+              id: block.vulnerability.id,
+              name: block.vulnerability.name,
+              category: block.vulnerability.category,
+              severity: block.vulnerability.severity,
+              summary: block.vulnerability.summary,
+              source: block.vulnerability.source,
+              sourceHostId: block.vulnerability.sourceHostId,
+              playbooks: block.vulnerability.playbooks
+            }
+          };
+        }
+
         return {
           ...base,
           host: {
@@ -637,20 +954,25 @@ function App() {
             osImagePath: block.host.osImagePath,
             ramGb: block.host.ramGb,
             storageGb: block.host.storageGb,
+            vmType: block.host.vmType,
+            flavor: block.host.flavor,
             externalDrives: block.host.externalDrives
           }
         };
       });
     const visibleConnections = connections
       .filter((connection) => visibleBlockIds.has(connection.from) && visibleBlockIds.has(connection.to))
-      .map((connection) => ({
-        id: connection.id,
-        kind: connection.kind || "service",
-        label: connection.label,
-        from: connection.from,
-        to: connection.to,
-        port: connection.kind === "topology" ? "" : connection.port
-      }));
+      .map((connection) => {
+        const kind = normalizeConnectionKind(connection.kind);
+        return {
+          id: connection.id,
+          kind,
+          label: connection.label,
+          from: connection.from,
+          to: connection.to,
+          port: kind === "service" ? connection.port : ""
+        };
+      });
 
     return {
       kind: "block-board",
@@ -912,7 +1234,7 @@ function App() {
           </label>
           <button type="button" onClick={resetBoard}>
             <RefreshCcw size={17} aria-hidden="true" />
-            <span>Three Host</span>
+            <span>Vulnerable Hosts</span>
           </button>
           <button type="button" onClick={compileBoard} disabled={isBackendBusy}>
             <Code2 size={17} aria-hidden="true" />
@@ -981,6 +1303,44 @@ function App() {
               viewBox={`0 0 ${boardSize.width} ${boardSize.height}`}
               aria-hidden="true"
             >
+              <defs>
+                <marker
+                  id="arrow-service"
+                  className="connection-marker connection-marker-service"
+                  markerWidth="9"
+                  markerHeight="9"
+                  refX="8"
+                  refY="4.5"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <path d="M 0 0 L 9 4.5 L 0 9 z" />
+                </marker>
+                <marker
+                  id="arrow-vulnerability"
+                  className="connection-marker connection-marker-vulnerability"
+                  markerWidth="9"
+                  markerHeight="9"
+                  refX="8"
+                  refY="4.5"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <path d="M 0 0 L 9 4.5 L 0 9 z" />
+                </marker>
+                <marker
+                  id="arrow-access"
+                  className="connection-marker connection-marker-access"
+                  markerWidth="9"
+                  markerHeight="9"
+                  refX="8"
+                  refY="4.5"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <path d="M 0 0 L 9 4.5 L 0 9 z" />
+                </marker>
+              </defs>
               {connections.map((connection) => {
                 const from = blocks.find((block) => block.id === connection.from);
                 const to = blocks.find((block) => block.id === connection.to);
@@ -988,6 +1348,7 @@ function App() {
                 if (!from || !to) {
                   return null;
                 }
+                const kind = normalizeConnectionKind(connection.kind);
                 const path = makeConnectorPath(outputPoint(from), inputPoint(to));
 
                 return (
@@ -1010,10 +1371,11 @@ function App() {
                       d={path}
                     />
                     <path
-                      className={`connection-path${connection.id === selectedConnectionId ? " is-selected" : ""}`}
+                      className={`connection-path connection-${kind}${connection.id === selectedConnectionId ? " is-selected" : ""}`}
                       d={path}
+                      markerEnd={isDirectedConnection(connection) ? `url(#arrow-${kind})` : undefined}
                     />
-                    <text className="connection-label" dy="-6">
+                    <text className={`connection-label connection-label-${kind}`} dy="-6">
                       <textPath href={`#${connection.id}-path`} startOffset="50%" textAnchor="middle">
                         {connectionLabel(connection)}
                       </textPath>
@@ -1149,26 +1511,160 @@ function App() {
             </form>
           )}
 
+          {selectedBlock && blockKind(selectedBlock) === "service" && (
+            <form className="properties-form">
+              <p className="properties-kicker">{selectedBlock.label}</p>
+              <label>
+                Service name
+                <input
+                  value={selectedBlock.service.name}
+                  onChange={(event) => updateSelectedBlockService({ name: event.target.value })}
+                />
+              </label>
+              <label>
+                Product
+                <input
+                  value={selectedBlock.service.product}
+                  onChange={(event) => updateSelectedBlockService({ product: event.target.value })}
+                />
+              </label>
+              <label>
+                Version
+                <input
+                  value={selectedBlock.service.version}
+                  onChange={(event) => updateSelectedBlockService({ version: event.target.value })}
+                />
+              </label>
+              <label>
+                Protocol
+                <input
+                  value={selectedBlock.service.protocol}
+                  onChange={(event) => updateSelectedBlockService({ protocol: event.target.value })}
+                />
+              </label>
+              <label>
+                Port
+                <input
+                  inputMode="numeric"
+                  value={selectedBlock.service.port}
+                  onChange={(event) => updateSelectedBlockService({ port: event.target.value })}
+                />
+              </label>
+              <label>
+                MHBench VM type
+                <input
+                  value={selectedBlock.service.mhbenchVmType}
+                  onChange={(event) => updateSelectedBlockService({ mhbenchVmType: event.target.value })}
+                />
+              </label>
+            </form>
+          )}
+
+          {selectedBlock && isFindingKind(blockKind(selectedBlock)) && (
+            <form className="properties-form">
+              <p className="properties-kicker">{selectedBlock.label}</p>
+              <label>
+                Vulnerability ID
+                <input
+                  value={selectedBlock.vulnerability.id}
+                  onChange={(event) => updateSelectedBlockVulnerability({ id: event.target.value })}
+                />
+              </label>
+              <label>
+                Name
+                <input
+                  value={selectedBlock.vulnerability.name}
+                  onChange={(event) => updateSelectedBlockVulnerability({ name: event.target.value })}
+                />
+              </label>
+              <label>
+                Category
+                <select
+                  value={selectedBlock.vulnerability.category}
+                  onChange={(event) => updateSelectedBlockVulnerability({ category: event.target.value })}
+                >
+                  <option value="cve">cve</option>
+                  <option value="misconfiguration">misconfiguration</option>
+                  <option value="backdoor">backdoor</option>
+                  <option value="weak-credential">weak-credential</option>
+                  <option value="credential-trust">credential-trust</option>
+                </select>
+              </label>
+              <label>
+                Severity
+                <select
+                  value={selectedBlock.vulnerability.severity}
+                  onChange={(event) => updateSelectedBlockVulnerability({ severity: event.target.value })}
+                >
+                  <option value="critical">critical</option>
+                  <option value="high">high</option>
+                  <option value="medium">medium</option>
+                  <option value="low">low</option>
+                </select>
+              </label>
+              <label>
+                Summary
+                <textarea
+                  rows={4}
+                  value={selectedBlock.vulnerability.summary}
+                  onChange={(event) => updateSelectedBlockVulnerability({ summary: event.target.value })}
+                />
+              </label>
+              <label>
+                Source
+                <input
+                  value={selectedBlock.vulnerability.source}
+                  onChange={(event) => updateSelectedBlockVulnerability({ source: event.target.value })}
+                />
+              </label>
+              <label>
+                Fallback source host ID
+                <input
+                  value={selectedBlock.vulnerability.sourceHostId}
+                  onChange={(event) => updateSelectedBlockVulnerability({ sourceHostId: event.target.value })}
+                />
+              </label>
+              <label>
+                MHBench playbooks
+                <textarea
+                  rows={4}
+                  value={selectedBlock.vulnerability.playbooks.map((playbook) => playbook.name).join("\n")}
+                  onChange={(event) =>
+                    updateSelectedBlockVulnerability({
+                      playbooks: event.target.value
+                        .split("\n")
+                        .map((name) => name.trim())
+                        .filter(Boolean)
+                        .map((name) => ({ name, args: { host: "$host" } }))
+                    })
+                  }
+                />
+              </label>
+            </form>
+          )}
+
           {selectedConnection && (
             <form className="properties-form">
               <p className="properties-kicker">
                 {blockName(blocks, selectedConnection.from)} to {blockName(blocks, selectedConnection.to)}
               </p>
-              <label>
-                Connector type
-                <select
-                  value={selectedConnection.kind || "service"}
-                  onChange={(event) =>
-                    updateSelectedConnection({
-                      kind: event.target.value,
-                      port: event.target.value === "topology" ? "" : selectedConnection.port || DEFAULT_CONNECTION_PORT
+      <label>
+        Connector type
+        <select
+          value={normalizeConnectionKind(selectedConnection.kind)}
+          onChange={(event) =>
+            updateSelectedConnection({
+              kind: event.target.value,
+              port: event.target.value === "service" ? selectedConnection.port || DEFAULT_CONNECTION_PORT : ""
                     })
                   }
-                >
-                  <option value="service">service</option>
-                  <option value="topology">topology</option>
-                </select>
-              </label>
+        >
+          <option value="service">service</option>
+          <option value="vulnerability">vulnerability</option>
+          <option value="access">access</option>
+          <option value="topology">topology</option>
+        </select>
+      </label>
               <label>
                 Connector name
                 <input
@@ -1176,7 +1672,7 @@ function App() {
                   onChange={(event) => updateSelectedConnection({ label: event.target.value })}
                 />
               </label>
-              {(selectedConnection.kind || "service") !== "topology" && (
+              {(selectedConnection.kind || "service") === "service" && (
                 <label>
                   Port
                   <select
@@ -1195,7 +1691,7 @@ function App() {
                   </select>
                 </label>
               )}
-              {(selectedConnection.kind || "service") !== "topology" && portSelectValue(selectedConnection.port) === "custom" && (
+              {(selectedConnection.kind || "service") === "service" && portSelectValue(selectedConnection.port) === "custom" && (
                 <label>
                   Custom port
                   <input
@@ -1239,6 +1735,14 @@ function App() {
                 <div>
                   <dt>Routers</dt>
                   <dd>{runState.result.intermediate?.routers?.length || 0}</dd>
+                </div>
+                <div>
+                  <dt>Services</dt>
+                  <dd>{runState.result.intermediate?.services?.length || 0}</dd>
+                </div>
+                <div>
+                  <dt>Vulnerabilities</dt>
+                  <dd>{runState.result.intermediate?.vulnerabilities?.length || 0}</dd>
                 </div>
                 <div>
                   <dt>Subnets</dt>
@@ -1310,9 +1814,23 @@ function clamp(value, min, max) {
 
 function createThreeHostCanvas() {
   const hosts = [
-    { id: "linux-1", x: 92, y: 80, color: BLOCK_TYPES[0].color },
-    { id: "linux-2", x: 92, y: 300, color: BLOCK_TYPES[1].color },
-    { id: "linux-3", x: 520, y: 300, color: BLOCK_TYPES[2].color }
+    { id: "web-1", x: 72, y: 76, color: BLOCK_TYPES[0].color, vmType: "webserver_netcat_running" },
+    { id: "app-1", x: 72, y: 270, color: BLOCK_TYPES[1].color, vmType: "ubuntu_sudobaron_running" },
+    { id: "db-1", x: 72, y: 410, color: BLOCK_TYPES[2].color, vmType: "ubuntu_base_running" }
+  ];
+  const services = [
+    { id: "service-struts-1", type: "service-struts", x: 320, y: 40 },
+    { id: "service-netcat-1", type: "service-netcat", x: 320, y: 115 },
+    { id: "service-sudo-1", type: "service-sudo", x: 320, y: 275 },
+    { id: "service-ssh-1", type: "service-openssh", x: 320, y: 380 },
+    { id: "service-vsftpd-1", type: "service-vsftpd", x: 320, y: 455 }
+  ];
+  const findings = [
+    { id: "vuln-struts-cve-1", type: "vuln-struts-cve", x: 530, y: 40 },
+    { id: "misconfig-netcat-listener-1", type: "misconfig-netcat-listener", x: 530, y: 115 },
+    { id: "vuln-sudo-baron-1", type: "vuln-sudo-baron", x: 530, y: 275 },
+    { id: "misconfig-root-ssh-trust-1", type: "misconfig-root-ssh-trust", x: 530, y: 380 },
+    { id: "vuln-vsftpd-backdoor-1", type: "vuln-vsftpd-backdoor", x: 530, y: 455 }
   ];
 
   return {
@@ -1329,6 +1847,8 @@ function createThreeHostCanvas() {
           osImagePath: DEFAULT_OS_IMAGE_PATH,
           ramGb: 1,
           storageGb: 8,
+          vmType: host.vmType,
+          flavor: "m1.small",
           externalDrives: []
         },
         x: host.x,
@@ -1342,34 +1862,150 @@ function createThreeHostCanvas() {
         label: "router",
         color: BLOCK_TYPE_MAP.router.color,
         router: createRouterDefaults(1),
-        x: 320,
+        x: 250,
         y: 190,
         order: 3
-      }
+      },
+      ...services.map((service, index) => {
+        const type = BLOCK_TYPE_MAP[service.type];
+        return {
+          id: service.id,
+          kind: "service",
+          type: type.id,
+          label: type.label,
+          color: type.color,
+          service: createServiceDefaults(type.id, index + 1),
+          x: service.x,
+          y: service.y,
+          order: index + 4
+        };
+      }),
+      ...findings.map((finding, index) => {
+        const type = BLOCK_TYPE_MAP[finding.type];
+        return {
+          id: finding.id,
+          kind: type.kind,
+          type: type.id,
+          label: type.label,
+          color: type.color,
+          vulnerability: createVulnerabilityDefaults(type.id, index + 1),
+          x: finding.x,
+          y: finding.y,
+          order: index + 9
+        };
+      })
     ],
     connections: [
       {
-        id: "linux-1-to-router-1",
+        id: "web-1-to-router-1",
         kind: "topology",
-        label: "subnet.web",
-        from: "linux-1",
+        label: "web",
+        from: "web-1",
         to: "router-1",
         port: ""
       },
       {
-        id: "linux-2-to-router-1",
+        id: "app-1-to-router-1",
         kind: "topology",
-        label: "subnet.internal",
-        from: "linux-2",
+        label: "internal",
+        from: "app-1",
         to: "router-1",
         port: ""
       },
       {
-        id: "linux-3-to-router-1",
+        id: "db-1-to-router-1",
         kind: "topology",
-        label: "subnet.backend",
-        from: "linux-3",
+        label: "backend",
+        from: "db-1",
         to: "router-1",
+        port: ""
+      },
+      {
+        id: "web-1-to-service-struts-1",
+        kind: "service",
+        label: "http",
+        from: "web-1",
+        to: "service-struts-1",
+        port: "8080"
+      },
+      {
+        id: "service-struts-1-to-vuln-struts-cve-1",
+        kind: "vulnerability",
+        label: "exposes",
+        from: "service-struts-1",
+        to: "vuln-struts-cve-1",
+        port: ""
+      },
+      {
+        id: "web-1-to-service-netcat-1",
+        kind: "service",
+        label: "bind",
+        from: "web-1",
+        to: "service-netcat-1",
+        port: "4444"
+      },
+      {
+        id: "service-netcat-1-to-misconfig-netcat-listener-1",
+        kind: "vulnerability",
+        label: "configured as",
+        from: "service-netcat-1",
+        to: "misconfig-netcat-listener-1",
+        port: ""
+      },
+      {
+        id: "app-1-to-service-sudo-1",
+        kind: "service",
+        label: "local",
+        from: "app-1",
+        to: "service-sudo-1",
+        port: ""
+      },
+      {
+        id: "service-sudo-1-to-vuln-sudo-baron-1",
+        kind: "vulnerability",
+        label: "exposes",
+        from: "service-sudo-1",
+        to: "vuln-sudo-baron-1",
+        port: ""
+      },
+      {
+        id: "db-1-to-service-ssh-1",
+        kind: "service",
+        label: "ssh",
+        from: "db-1",
+        to: "service-ssh-1",
+        port: "22"
+      },
+      {
+        id: "service-ssh-1-to-misconfig-root-ssh-trust-1",
+        kind: "vulnerability",
+        label: "trusts",
+        from: "service-ssh-1",
+        to: "misconfig-root-ssh-trust-1",
+        port: ""
+      },
+      {
+        id: "web-1-to-misconfig-root-ssh-trust-1",
+        kind: "access",
+        label: "root key",
+        from: "web-1",
+        to: "misconfig-root-ssh-trust-1",
+        port: ""
+      },
+      {
+        id: "db-1-to-service-vsftpd-1",
+        kind: "service",
+        label: "ftp",
+        from: "db-1",
+        to: "service-vsftpd-1",
+        port: "21"
+      },
+      {
+        id: "service-vsftpd-1-to-vuln-vsftpd-backdoor-1",
+        kind: "vulnerability",
+        label: "exposes",
+        from: "service-vsftpd-1",
+        to: "vuln-vsftpd-backdoor-1",
         port: ""
       }
     ]
@@ -1382,19 +2018,62 @@ function numberOrDefault(value, fallback) {
 }
 
 function blockKind(block) {
-  return block?.kind || block?.nodeType || (block?.type === "router" ? "router" : "host");
+  const explicit = block?.kind || block?.nodeType;
+  if (["host", "router", "service", "vulnerability", "misconfiguration"].includes(explicit)) {
+    return explicit;
+  }
+  if (block?.service) {
+    return "service";
+  }
+  if (block?.vulnerability) {
+    const type = BLOCK_TYPE_MAP[block?.type];
+    return isFindingKind(type?.kind) ? type.kind : "vulnerability";
+  }
+  if (block?.router || block?.type === "router") {
+    return "router";
+  }
+  const type = BLOCK_TYPE_MAP[block?.type];
+  return type?.kind || "host";
+}
+
+function isFindingKind(kind) {
+  return kind === "vulnerability" || kind === "misconfiguration";
+}
+
+function defaultTypeForKind(kind) {
+  return BLOCK_TYPES.find((type) => type.kind === kind) || BLOCK_TYPES[0];
 }
 
 function nodeName(block) {
   if (!block) {
     return "";
   }
-  return blockKind(block) === "router" ? block.router?.name || block.label : block.host?.hostname || block.label;
+  if (blockKind(block) === "router") {
+    return block.router?.name || block.label;
+  }
+  if (blockKind(block) === "service") {
+    return block.service?.name || block.label;
+  }
+  if (isFindingKind(blockKind(block))) {
+    const vulnerabilityId = block.vulnerability?.id || "";
+    if (vulnerabilityId.startsWith("MISCONFIG")) {
+      return block.label || block.vulnerability?.name || vulnerabilityId;
+    }
+    return vulnerabilityId || block.vulnerability?.name || block.label;
+  }
+  return block.host?.hostname || block.label;
 }
 
 function blockMeta(block) {
   if (blockKind(block) === "router") {
     return "router / subnet gateway";
+  }
+  if (blockKind(block) === "service") {
+    const port = block.service.port ? `:${block.service.port}` : "";
+    return `${block.service.product} ${block.service.version}${port}`;
+  }
+  if (isFindingKind(blockKind(block))) {
+    return `${block.vulnerability.category} / ${block.vulnerability.severity}`;
   }
   return `${block.host.ramGb}GB RAM / ${block.host.storageGb}GB disk`;
 }
@@ -1404,8 +2083,59 @@ function blockName(blocks, blockId) {
   return nodeName(block) || "missing";
 }
 
+function inferConnectionKind(fromId, toId, blocks) {
+  const from = blocks.find((block) => block.id === fromId);
+  const to = blocks.find((block) => block.id === toId);
+  const endpointKinds = new Set([blockKind(from), blockKind(to)]);
+
+  if (endpointKinds.has("router")) {
+    return "topology";
+  }
+  if (endpointKinds.has("host") && [...endpointKinds].some(isFindingKind)) {
+    return "access";
+  }
+  if ([...endpointKinds].some(isFindingKind)) {
+    return "vulnerability";
+  }
+  return "service";
+}
+
+function normalizeConnectionKind(kind) {
+  return ["topology", "service", "vulnerability", "access"].includes(kind) ? kind : "service";
+}
+
+function isDirectedConnection(connection) {
+  return ["service", "vulnerability", "access"].includes(normalizeConnectionKind(connection.kind));
+}
+
+function defaultConnectionLabel(kind, index, service) {
+  if (kind === "topology") {
+    return `link.${index + 1}`;
+  }
+  if (kind === "vulnerability") {
+    return "exposes";
+  }
+  if (kind === "access") {
+    return "access";
+  }
+  if (service?.service?.protocol) {
+    return service.service.protocol;
+  }
+  return index === 0 ? DEFAULT_CONNECTION_LABEL : `${DEFAULT_CONNECTION_LABEL}.${index + 1}`;
+}
+
 function connectionLabel(connection) {
-  if ((connection.kind || "service") === "topology") {
+  const kind = normalizeConnectionKind(connection.kind);
+  if (kind === "topology") {
+    return connection.label;
+  }
+  if (kind === "vulnerability") {
+    return connection.label || "exposes";
+  }
+  if (kind === "access") {
+    return connection.label || "access";
+  }
+  if (!connection.port) {
     return connection.label;
   }
   return `${connection.label}:${connection.port}`;

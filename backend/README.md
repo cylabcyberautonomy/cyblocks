@@ -8,7 +8,7 @@ Current flow:
 IDE graph JSON -> intermediate DSL JSON -> Docker networked containers
 ```
 
-This is not the final MHBench/OpenStack compiler. It is a runnable Docker Engine bridge for validating that host blocks, router blocks, subnets, and connectors can become a small environment before the DSL is handed to MHBench-style generation.
+This is not the final MHBench/OpenStack compiler. It is a runnable Docker Engine bridge for validating that host blocks, router blocks, service blocks, CVE/misconfiguration blocks, subnets, and connectors can become a small environment before the DSL is handed to MHBench-style generation.
 
 ## MHBench Shape
 
@@ -20,6 +20,12 @@ MHBench environment specs such as `../MHBench/environments/non-generated/equifax
 - `playbooks[]`
 
 Cyblocks keeps an intermediate DSL between the IDE and any target backend so the canvas does not become Docker-specific or MHBench-specific.
+
+## Detailed Backend Docs
+
+- [Compilation](docs/compilation/README.md)
+- [Intermediate DSL](docs/dsl/README.md)
+- [Deploy](docs/deploy/README.md)
 
 ## Local Server Startup
 
@@ -62,6 +68,8 @@ The flat example starts from [examples/three-host-http.ide.json](examples/three-
 
 The routed example starts from [examples/routed-three-host.ide.json](examples/routed-three-host.ide.json). It creates three host blocks and one router block. Each host-to-router topology connector becomes its own Docker bridge subnet, the router container attaches to all three subnets, and the deployer installs routes so hosts can communicate across the graph.
 
+The vulnerable-hosts example starts from [examples/vulnerable-hosts.ide.json](examples/vulnerable-hosts.ide.json). It keeps the routed three-host topology and adds five service blocks, three CVE blocks, and two misconfiguration blocks drawn from MHBench-style playbooks: Apache Struts CVE-2017-5638, Netcat shell listener, sudo Baron Samedit, root SSH key trust from web to database, and vsftpd 2.3.4 CVE-2011-2523. The SSH-key case also uses a directed `access` link from the web host to the SSH trust misconfiguration so the one-way source host is explicit.
+
 Run:
 
 ```bash
@@ -72,6 +80,14 @@ Run the routed subnet example:
 
 ```bash
 backend/scripts/run_three_host_example.sh backend/examples/routed-three-host.ide.json
+```
+
+Compile the vulnerable-hosts MHBench projection:
+
+```bash
+python3 backend/scripts/compile_ide_to_intermediate.py \
+  backend/examples/vulnerable-hosts.ide.json \
+  --out backend/generated/vulnerable-hosts.intermediate.json
 ```
 
 For frontend-driven compile/deploy buttons, start the API server from the repo root:
@@ -131,6 +147,7 @@ python3 backend/scripts/teardown_docker.py \
 - Router blocks compile to first-class `routers[]` entries, topology links compile to Docker bridge subnets, and router interfaces compile to `subnetConnections[]` plus route entries.
 - Router containers run with Docker's local `--privileged` flag in this prototype so Linux Docker Engine can enable forwarding inside the router network namespace. The deployer verifies `ip_forward=1` before running cross-subnet checks.
 - The compiler also emits an `mhbench` projection with `networks[].subnets[].hosts[]`, `subnet_connections[]`, and `playbooks[]`, matching the MHBench environment shape without changing deployment targets yet.
+- Service, CVE, misconfiguration, and access links compile into `services[]`, `vulnerabilities[]`, `serviceFindings[]`, generated `playbooks[]`, and the same MHBench projection.
 - RAM is passed to Docker as a memory limit.
 - Storage GB and external drive paths are preserved in the intermediate DSL; storage quotas are not enforced yet because Docker storage quota support depends on the local storage driver.
 - Connector ports are validated and used for HTTP reachability checks.

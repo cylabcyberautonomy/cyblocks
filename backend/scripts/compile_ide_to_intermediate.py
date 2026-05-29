@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections import deque
 from itertools import combinations
 from pathlib import Path
@@ -11,6 +12,7 @@ from backend_common import docker_image_from_os_path, load_json, slug, write_jso
 
 DEFAULT_ROUTER_IMAGE = "docker://alpine:latest"
 DEFAULT_HOST_IMAGE = "docker://nginx:alpine"
+DEFAULT_CONNECTION_PORT = 80
 
 
 def require_host(block: dict[str, Any]) -> dict[str, Any]:
@@ -22,11 +24,21 @@ def require_host(block: dict[str, Any]) -> dict[str, Any]:
 
 def block_kind(block: dict[str, Any]) -> str:
     explicit = str(block.get("kind") or block.get("nodeType") or "").lower()
-    if explicit in {"host", "router"}:
+    if explicit in {"host", "router", "service", "vulnerability", "misconfiguration"}:
         return explicit
     if isinstance(block.get("router"), dict) or str(block.get("type") or "").startswith("router"):
         return "router"
+    if isinstance(block.get("service"), dict) or str(block.get("type") or "").startswith("service"):
+        return "service"
+    if str(block.get("type") or "").startswith("misconfig"):
+        return "misconfiguration"
+    if isinstance(block.get("vulnerability"), dict) or str(block.get("type") or "").startswith("vuln"):
+        return "vulnerability"
     return "host"
+
+
+def is_finding_kind(kind: str) -> bool:
+    return kind in {"vulnerability", "misconfiguration"}
 
 
 def block_position(block: dict[str, Any]) -> dict[str, int]:
@@ -41,10 +53,29 @@ def require_router(block: dict[str, Any]) -> dict[str, Any]:
     return router if isinstance(router, dict) else {}
 
 
+def require_service(block: dict[str, Any]) -> dict[str, Any]:
+    service = block.get("service")
+    return service if isinstance(service, dict) else {}
+
+
+def require_vulnerability(block: dict[str, Any]) -> dict[str, Any]:
+    vulnerability = block.get("vulnerability")
+    return vulnerability if isinstance(vulnerability, dict) else {}
+
+
 def parse_port(value: Any, *, connection_id: str) -> int:
     port = int(value or 80)
     if port < 1 or port > 65535:
         raise ValueError(f"Connection {connection_id}: port must be 1-65535.")
+    return port
+
+
+def parse_optional_port(value: Any, *, context: str) -> int | None:
+    if value in {None, ""}:
+        return None
+    port = int(value)
+    if port < 1 or port > 65535:
+        raise ValueError(f"{context}: port must be 1-65535.")
     return port
 
 
@@ -85,12 +116,18 @@ def compile_ide_graph(source: dict[str, Any], *, name: str | None = None) -> dic
     playbooks = normalize_playbooks(source.get("playbooks", []))
     hosts = []
     routers = []
+    services = []
+    vulnerabilities = []
     host_by_id: dict[str, dict[str, Any]] = {}
     router_by_id: dict[str, dict[str, Any]] = {}
+    service_by_id: dict[str, dict[str, Any]] = {}
+    vulnerability_by_id: dict[str, dict[str, Any]] = {}
     node_kinds: dict[str, str] = {}
     known_ids = set()
     known_hostnames = set()
     known_router_names = set()
+    known_service_names = set()
+    known_vulnerability_ids = set()
 
     for index, block in enumerate(blocks):
         block_id = str(block.get("id") or f"host-{index + 1}")
@@ -121,6 +158,59 @@ def compile_ide_graph(source: dict[str, Any], *, name: str | None = None) -> dic
             routers.append(item)
             continue
 
+        if kind == "service":
+            service = require_service(block)
+            service_name = slug(str(service.get("name") or block.get("label") or block_id))
+            if service_name in known_service_names:
+                raise ValueError(f"Duplicate service name {service_name!r}.")
+            port = parse_optional_port(service.get("port"), context=f"Service {service_name}")
+            item = {
+                "id": block_id,
+                "name": service_name,
+                "product": str(service.get("product") or block.get("label") or service_name),
+                "version": str(service.get("version") or ""),
+                "protocol": str(service.get("protocol") or "tcp"),
+                "port": port,
+                "mhbenchVmType": str(service.get("mhbenchVmType") or service.get("vmType") or ""),
+                "hostIds": [],
+                "vulnerabilityIds": [],
+                "position": block_position(block),
+            }
+            known_service_names.add(service_name)
+            service_by_id[block_id] = item
+            services.append(item)
+            continue
+
+        if is_finding_kind(kind):
+            vulnerability = require_vulnerability(block)
+            vulnerability_id = str(
+                vulnerability.get("id")
+                or vulnerability.get("cve")
+                or vulnerability.get("vulnerabilityId")
+                or block_id
+            )
+            if vulnerability_id in known_vulnerability_ids:
+                raise ValueError(f"Duplicate vulnerability id {vulnerability_id!r}.")
+            item = {
+                "id": block_id,
+                "kind": kind,
+                "vulnerabilityId": vulnerability_id,
+                "name": str(vulnerability.get("name") or block.get("label") or vulnerability_id),
+                "category": str(vulnerability.get("category") or "cve"),
+                "severity": str(vulnerability.get("severity") or "medium"),
+                "summary": str(vulnerability.get("summary") or vulnerability.get("description") or ""),
+                "source": str(vulnerability.get("source") or ""),
+                "sourceHostId": str(vulnerability.get("sourceHostId") or ""),
+                "playbooks": normalize_playbooks(vulnerability.get("playbooks", [])),
+                "serviceIds": [],
+                "hostIds": [],
+                "position": block_position(block),
+            }
+            known_vulnerability_ids.add(vulnerability_id)
+            vulnerability_by_id[block_id] = item
+            vulnerabilities.append(item)
+            continue
+
         host = require_host(block)
         hostname = slug(str(host.get("hostname") or block_id))
         if hostname in known_hostnames:
@@ -143,6 +233,8 @@ def compile_ide_graph(source: dict[str, Any], *, name: str | None = None) -> dic
             "dockerImage": docker_image_from_os_path(os_image_path),
             "ramGb": ram_gb,
             "storageGb": storage_gb,
+            "vmType": str(host.get("vmType") or ""),
+            "flavor": str(host.get("flavor") or ""),
             "externalDrives": external_drives,
             "subnetIds": [],
             "ipAddresses": {},
@@ -155,6 +247,9 @@ def compile_ide_graph(source: dict[str, Any], *, name: str | None = None) -> dic
     compiled_connections = []
     topology_edges = []
     service_checks = []
+    service_hosts: dict[str, set[str]] = {service["id"]: set() for service in services}
+    service_vulnerabilities: dict[str, set[str]] = {service["id"]: set() for service in services}
+    access_sources: dict[str, set[str]] = {vulnerability["id"]: set() for vulnerability in vulnerabilities}
     for index, connection in enumerate(connections):
         from_id = str(connection.get("from") or "")
         to_id = str(connection.get("to") or "")
@@ -165,13 +260,36 @@ def compile_ide_graph(source: dict[str, Any], *, name: str | None = None) -> dic
         connection_kind = str(connection.get("kind") or "").lower()
         if "router" in endpoint_kinds:
             connection_kind = "topology"
-        elif connection_kind not in {"service", "topology"}:
-            connection_kind = "topology" if "router" in endpoint_kinds else "service"
+        elif connection_kind == "access":
+            connection_kind = "access"
+        elif any(is_finding_kind(kind) for kind in endpoint_kinds):
+            connection_kind = "vulnerability"
+        elif connection_kind not in {"service", "topology", "vulnerability", "access"}:
+            connection_kind = "service"
+        if connection_kind == "topology" and not endpoint_kinds <= {"host", "router"}:
+            raise ValueError(f"Connection {connection_id}: topology links may only connect hosts and routers.")
+        if connection_kind == "access" and not ("host" in endpoint_kinds and any(is_finding_kind(kind) for kind in endpoint_kinds)):
+            raise ValueError(f"Connection {connection_id}: access links must connect one host and one finding.")
+        if connection_kind == "access" and not (
+            node_kinds[from_id] == "host" and is_finding_kind(node_kinds[to_id])
+        ):
+            raise ValueError(f"Connection {connection_id}: access links must point from host to finding.")
 
         compiled = {
             "id": connection_id,
             "kind": connection_kind,
-            "label": str(connection.get("label") or ("link" if connection_kind == "topology" else "http")),
+            "label": str(
+                connection.get("label")
+                or (
+                    "link"
+                    if connection_kind == "topology"
+                    else "exposes"
+                    if connection_kind == "vulnerability"
+                    else "access"
+                    if connection_kind == "access"
+                    else "service"
+                )
+            ),
             "from": from_id,
             "to": to_id,
             "endpointKinds": {
@@ -179,9 +297,17 @@ def compile_ide_graph(source: dict[str, Any], *, name: str | None = None) -> dic
                 "to": node_kinds[to_id],
             },
             "protocol": "tcp",
+            "directed": connection_kind in {"service", "vulnerability", "access"},
         }
-        if connection.get("port") not in {None, ""} or connection_kind == "service":
-            compiled["port"] = parse_port(connection.get("port"), connection_id=connection_id)
+        if connection_kind == "service":
+            service_endpoint = from_id if node_kinds[from_id] == "service" else to_id if node_kinds[to_id] == "service" else None
+            port_value = connection.get("port")
+            if port_value in {None, ""} and service_endpoint:
+                port_value = service_by_id[service_endpoint].get("port")
+            if port_value in {None, ""} and endpoint_kinds == {"host"}:
+                port_value = DEFAULT_CONNECTION_PORT
+            if port_value not in {None, ""}:
+                compiled["port"] = parse_port(port_value, connection_id=connection_id)
 
         compiled_connections.append(compiled)
         if connection_kind == "topology":
@@ -198,11 +324,32 @@ def compile_ide_graph(source: dict[str, Any], *, name: str | None = None) -> dic
                     "generated": False,
                 }
             )
+        elif connection_kind == "service" and endpoint_kinds == {"host", "service"}:
+            service_id = from_id if node_kinds[from_id] == "service" else to_id
+            host_id = from_id if node_kinds[from_id] == "host" else to_id
+            service_hosts.setdefault(service_id, set()).add(host_id)
+        elif connection_kind == "vulnerability" and "service" in endpoint_kinds and any(is_finding_kind(kind) for kind in endpoint_kinds):
+            service_id = from_id if node_kinds[from_id] == "service" else to_id
+            vulnerability_id = from_id if is_finding_kind(node_kinds[from_id]) else to_id
+            service_vulnerabilities.setdefault(service_id, set()).add(vulnerability_id)
+        elif connection_kind == "access":
+            access_sources.setdefault(to_id, set()).add(from_id)
 
     networks = build_subnets(env_name, hosts, routers, topology_edges, node_kinds)
     assign_addresses(networks, host_by_id, router_by_id, node_kinds)
     subnet_connections = build_subnet_connections(routers)
     routes = build_routes(networks, hosts, routers)
+    service_findings, generated_playbooks = build_service_findings(
+        services,
+        vulnerabilities,
+        service_hosts,
+        service_vulnerabilities,
+        host_by_id,
+        service_by_id,
+        vulnerability_by_id,
+        access_sources,
+    )
+    all_playbooks = merge_playbooks([*playbooks, *generated_playbooks])
 
     if routers and not service_checks and len(hosts) > 1:
         for source, target in combinations(hosts, 2):
@@ -230,13 +377,147 @@ def compile_ide_graph(source: dict[str, Any], *, name: str | None = None) -> dic
         "networks": networks,
         "hosts": hosts,
         "routers": routers,
+        "services": services,
+        "vulnerabilities": vulnerabilities,
+        "serviceFindings": service_findings,
         "connections": compiled_connections,
         "subnetConnections": subnet_connections,
         "routes": routes,
         "serviceChecks": service_checks,
-        "playbooks": playbooks,
-        "mhbench": build_mhbench_projection(env_name, networks, hosts, subnet_connections, playbooks),
+        "playbooks": all_playbooks,
+        "mhbench": build_mhbench_projection(env_name, networks, hosts, subnet_connections, all_playbooks),
     }
+
+
+def build_service_findings(
+    services: list[dict[str, Any]],
+    vulnerabilities: list[dict[str, Any]],
+    service_hosts: dict[str, set[str]],
+    service_vulnerabilities: dict[str, set[str]],
+    host_by_id: dict[str, dict[str, Any]],
+    service_by_id: dict[str, dict[str, Any]],
+    vulnerability_by_id: dict[str, dict[str, Any]],
+    access_sources: dict[str, set[str]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    for service in services:
+        service["hostIds"] = sorted(service_hosts.get(service["id"], set()))
+        service["vulnerabilityIds"] = sorted(service_vulnerabilities.get(service["id"], set()))
+
+    vulnerability_service_ids: dict[str, set[str]] = {vulnerability["id"]: set() for vulnerability in vulnerabilities}
+    vulnerability_host_ids: dict[str, set[str]] = {vulnerability["id"]: set() for vulnerability in vulnerabilities}
+    findings = []
+    generated_playbooks = []
+
+    for service_id, vulnerability_ids in service_vulnerabilities.items():
+        service = service_by_id.get(service_id)
+        if not service:
+            continue
+        host_ids = sorted(service_hosts.get(service_id, set()))
+        for vulnerability_id in sorted(vulnerability_ids):
+            vulnerability = vulnerability_by_id.get(vulnerability_id)
+            if not vulnerability:
+                continue
+            vulnerability_service_ids.setdefault(vulnerability_id, set()).add(service_id)
+            for host_id in host_ids:
+                host = host_by_id.get(host_id)
+                if not host:
+                    continue
+                vulnerability_host_ids.setdefault(vulnerability_id, set()).add(host_id)
+                source_host_id = first_access_source(access_sources.get(vulnerability_id, set()), host_id)
+                playbooks = [
+                    render_playbook_template(playbook, host, service, vulnerability, host_by_id, source_host_id)
+                    for playbook in vulnerability.get("playbooks", [])
+                ]
+                generated_playbooks.extend(playbooks)
+                findings.append(
+                    {
+                        "id": slug(f"{host_id}-{service_id}-{vulnerability_id}"),
+                        "hostId": host_id,
+                        "host": host["hostname"],
+                        "serviceId": service_id,
+                        "service": service["name"],
+                        "product": service["product"],
+                        "version": service["version"],
+                        "protocol": service["protocol"],
+                        "port": service.get("port"),
+                        "vulnerabilityId": vulnerability_id,
+                        "vulnerability": vulnerability["vulnerabilityId"],
+                        "category": vulnerability["category"],
+                        "severity": vulnerability["severity"],
+                        "summary": vulnerability["summary"],
+                        "source": vulnerability["source"],
+                        "playbooks": playbooks,
+                    }
+                )
+
+    for vulnerability in vulnerabilities:
+        vulnerability["serviceIds"] = sorted(vulnerability_service_ids.get(vulnerability["id"], set()))
+        vulnerability["hostIds"] = sorted(vulnerability_host_ids.get(vulnerability["id"], set()))
+        vulnerability["sourceHostIds"] = sorted(access_sources.get(vulnerability["id"], set()))
+
+    return findings, generated_playbooks
+
+
+def first_access_source(source_ids: set[str], target_host_id: str) -> str | None:
+    candidates = sorted(source_id for source_id in source_ids if source_id != target_host_id)
+    return candidates[0] if candidates else None
+
+
+def render_playbook_template(
+    playbook: dict[str, Any],
+    host: dict[str, Any],
+    service: dict[str, Any],
+    vulnerability: dict[str, Any],
+    host_by_id: dict[str, dict[str, Any]],
+    source_host_id: str | None = None,
+) -> dict[str, Any]:
+    source_host_id = source_host_id or vulnerability.get("sourceHostId")
+    source_host = host_by_id.get(source_host_id) if source_host_id else None
+    context = {
+        "host": host["hostname"],
+        "hostId": host["id"],
+        "sourceHost": source_host["hostname"] if source_host else host["hostname"],
+        "sourceHostId": source_host["id"] if source_host else host["id"],
+        "service": service["name"],
+        "serviceId": service["id"],
+        "product": service["product"],
+        "version": service["version"],
+        "protocol": service["protocol"],
+        "port": service.get("port"),
+        "vulnerability": vulnerability["vulnerabilityId"],
+        "vulnerabilityId": vulnerability["id"],
+    }
+
+    return {
+        "name": playbook["name"],
+        "args": render_template_value(playbook.get("args", {}), context),
+    }
+
+
+def render_template_value(value: Any, context: dict[str, Any]) -> Any:
+    if isinstance(value, str):
+        rendered = value
+        for key, replacement in context.items():
+            rendered = rendered.replace(f"${key}", str(replacement or ""))
+            rendered = rendered.replace(f"${{{key}}}", str(replacement or ""))
+        return rendered
+    if isinstance(value, list):
+        return [render_template_value(item, context) for item in value]
+    if isinstance(value, dict):
+        return {key: render_template_value(item, context) for key, item in value.items()}
+    return value
+
+
+def merge_playbooks(playbooks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged = []
+    seen = set()
+    for playbook in playbooks:
+        key = json.dumps(playbook, sort_keys=True)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(playbook)
+    return merged
 
 
 def build_subnets(
