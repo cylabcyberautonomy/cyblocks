@@ -106,6 +106,7 @@ The frontend posts the visible board to:
 
 `/api/quit` is intentionally broader than `/api/teardown`: teardown removes resources for the current compiled project, while quit removes every Docker container/network owned by Cyblocks before it stops the local dev servers. That global cleanup frees fixed address spaces left by previous boards.
 The equivalent CLI cleanup is `python3 backend/scripts/teardown_docker.py --all`.
+For routed multi-subnet Docker deploys, cleanup also removes Cyblocks-owned Docker-host `DOCKER-USER` bridge forwarding rules recorded in deployment state.
 
 To start from the React frontend instead, load the three-host board, download the `.ide.json` file, then pass that export to the same runner:
 
@@ -151,6 +152,7 @@ python3 backend/scripts/teardown_docker.py \
 - Router containers run with Docker's local `--privileged` flag in this prototype so Linux Docker Engine can enable forwarding inside the router network namespace. The deployer verifies `ip_forward=1` before running cross-subnet checks.
 - Router containers also add a best-effort `iptables` masquerade rule. This keeps routed reachability checks working on Linux/WSL Docker bridge networks where non-NAT forwarded packets can time out.
 - Multi-subnet router deploys should report `ip_forward=1 nat=masquerade` in deployment state. If NAT cannot be configured, deploy fails during router setup with a `router NAT setup failed` message. Router setup configures `iptables`, `iptables-legacy`, and `iptables-nft` when available for Linux/WSL Docker installs that keep forwarding rules in legacy tables.
+- Multi-subnet Docker deploys create deterministic Cyblocks bridge interface names and add scoped Docker-host `DOCKER-USER` accept rules between those bridges. This addresses Linux/WSL Docker installs where source-to-target checks time out even though routes are installed, the router can reach the target, and router NAT is configured.
 - If a routed `wget` check still times out, the deploy log writes a `Cyblocks connection diagnostics` section with route tables, interface state, target local HTTP status, and router forwarding/NAT rules.
 - The compiler also emits an `mhbench` projection with `networks[].subnets[].hosts[]`, `subnet_connections[]`, and `playbooks[]`, matching the MHBench environment shape without changing deployment targets yet.
 - Service, CVE, misconfiguration, and access links compile into `services[]`, `vulnerabilities[]`, `serviceFindings[]`, generated `playbooks[]`, and the same MHBench projection.

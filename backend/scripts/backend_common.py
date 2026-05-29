@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import sys
+from hashlib import sha1
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,15 @@ def slug(value: str) -> str:
     normalized = re.sub(r"[^a-zA-Z0-9_.-]+", "-", value.strip().lower())
     normalized = re.sub(r"-+", "-", normalized).strip("-")
     return normalized or "cyblocks"
+
+
+def network_name(network: dict[str, Any]) -> str:
+    return slug(network.get("name") or network["id"])
+
+
+def bridge_interface_name(project: str, network: dict[str, Any]) -> str:
+    digest = sha1(f"{project}:{network_name(network)}".encode("utf-8")).hexdigest()
+    return f"cyb{digest[:12]}"
 
 
 def docker_image_from_os_path(os_image_path: str) -> str:

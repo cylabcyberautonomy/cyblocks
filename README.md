@@ -84,7 +84,7 @@ In the browser:
 - `Deploy` creates the local Docker containers/networks.
 - `Status` shows compiled subnets and live Docker network attachments.
 - `End Deployment` removes deployed Docker containers and networks.
-- `Quit` removes all Cyblocks-owned Docker containers/networks, then stops both the frontend dev server and backend API server.
+- `Quit` removes all Cyblocks-owned Docker containers/networks and routed bridge firewall rules, then stops both the frontend dev server and backend API server.
 - `Download IDE JSON` saves the visible canvas graph.
 
 The current sample includes three hosts connected through one router, five service blocks, three CVE blocks, and two misconfiguration blocks. CVEs attach to services, misconfigurations get their own visual shape, and directed access links model one-way multi-host paths such as a web host holding a database SSH key.
@@ -109,7 +109,7 @@ Stop a deployment manually with:
 python3 backend/scripts/teardown_docker.py backend/generated/vulnerable-hosts.intermediate.json
 ```
 
-The frontend `Quit` button performs a broader cleanup than project teardown: it removes every Docker container/network with the `cyblocks.project` label and clears deployment state under `backend/runs/` so reused fixed subnets are released before the next compile/deploy cycle. Run `python3 backend/scripts/teardown_docker.py --all` for the same Docker cleanup without stopping the dev servers.
+The frontend `Quit` button performs a broader cleanup than project teardown: it removes every Docker container/network with the `cyblocks.project` label, clears Cyblocks routed bridge firewall rules recorded in deployment state, and deletes deployment state under `backend/runs/` so reused fixed subnets are released before the next compile/deploy cycle. Run `python3 backend/scripts/teardown_docker.py --all` for the same Docker cleanup without stopping the dev servers.
 
 Design notes for the future Docker/container mapping live in [docs/docker-canvas-ide-chat-helper.md](docs/docker-canvas-ide-chat-helper.md).
 

@@ -35,7 +35,7 @@ The export keeps block kinds, positions, service metadata, finding metadata, con
 - `Compile` posts the visible board to `POST /api/compile`.
 - `Deploy` posts the visible board to `POST /api/deploy`.
 - `End Deployment` posts the visible board to `POST /api/teardown` and removes only the compiled project.
-- `Quit` posts to `POST /api/quit`, which removes all Cyblocks-owned Docker containers/networks before stopping the frontend and backend dev servers.
+- `Quit` posts to `POST /api/quit`, which removes all Cyblocks-owned Docker containers/networks and routed bridge firewall rules before stopping the frontend and backend dev servers.
 
 ## Local Development
 

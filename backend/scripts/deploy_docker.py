@@ -7,14 +7,15 @@ from pathlib import Path
 from typing import Any
 
 from backend_common import (
+    bridge_interface_name,
     container_name,
     docker_bin,
     ensure_docker_ready,
     load_json,
+    network_name,
     project_name,
     run,
     run_dir,
-    slug,
     write_json,
 )
 
@@ -49,12 +50,13 @@ def member_ip(network: dict[str, Any], node_id: str) -> str | None:
     return None
 
 
-def ensure_network(docker: str, network: dict[str, Any], project: str, log_path: Path) -> None:
-    network_name = slug(network.get("name") or network["id"])
-    existing = run([docker, "network", "inspect", network_name], log_path=log_path, check=False, capture=True)
+def ensure_network(docker: str, network: dict[str, Any], project: str, log_path: Path) -> str | None:
+    docker_network_name = network_name(network)
+    existing = run([docker, "network", "inspect", docker_network_name], log_path=log_path, check=False, capture=True)
     if existing.returncode == 0:
-        return
+        return inspect_bridge_interface(docker, docker_network_name, log_path)
     driver = network.get("driver") or "bridge"
+    bridge_name = bridge_interface_name(project, network) if driver == "bridge" else None
     cmd = [
         docker,
         "network",
@@ -68,6 +70,8 @@ def ensure_network(docker: str, network: dict[str, Any], project: str, log_path:
         cmd.extend(
             [
                 "--opt",
+                f"com.docker.network.bridge.name={bridge_name}",
+                "--opt",
                 "com.docker.network.bridge.enable_icc=true",
                 "--opt",
                 "com.docker.network.bridge.enable_ip_masquerade=true",
@@ -75,8 +79,184 @@ def ensure_network(docker: str, network: dict[str, Any], project: str, log_path:
         )
     if network.get("cidr"):
         cmd.extend(["--subnet", str(network["cidr"])])
-    cmd.append(network_name)
+    cmd.append(docker_network_name)
     run(cmd, log_path=log_path, capture=True)
+    return inspect_bridge_interface(docker, docker_network_name, log_path) or bridge_name
+
+
+def inspect_bridge_interface(
+    docker: str,
+    docker_network_name: str,
+    log_path: Path | None = None,
+) -> str | None:
+    result = run(
+        [
+            docker,
+            "network",
+            "inspect",
+            "--format",
+            "{{.Driver}} {{.Id}} {{if index .Options \"com.docker.network.bridge.name\"}}{{index .Options \"com.docker.network.bridge.name\"}}{{end}}",
+            docker_network_name,
+        ],
+        log_path=log_path,
+        check=False,
+        capture=True,
+    )
+    if result.returncode != 0:
+        return None
+    fields = (result.stdout or "").strip().split()
+    if not fields or fields[0] != "bridge":
+        return None
+    if len(fields) >= 3 and fields[2]:
+        return fields[2]
+    if len(fields) >= 2 and fields[1]:
+        return f"br-{fields[1][:12]}"
+    return None
+
+
+def ensure_host_bridge_forwarding(docker: str, bridge_interfaces: list[str], log_path: Path) -> dict[str, Any]:
+    bridges = sorted({bridge for bridge in bridge_interfaces if bridge})
+    if len(bridges) < 2:
+        return {"enabled": False, "bridgeInterfaces": bridges}
+
+    script = host_bridge_firewall_script(bridges, action="add")
+    result = run(
+        [
+            docker,
+            "run",
+            "--rm",
+            "--privileged",
+            "--network",
+            "host",
+            "alpine:latest",
+            "sh",
+            "-lc",
+            script,
+        ],
+        log_path=log_path,
+        check=False,
+        capture=True,
+    )
+    output = (result.stdout or "").strip()
+    if result.returncode != 0:
+        with log_path.open("a") as log:
+            log.write(
+                "Cyblocks host bridge forwarding helper failed. "
+                "Routed checks may time out on Linux/WSL Docker.\n"
+            )
+    return {
+        "enabled": result.returncode == 0,
+        "bridgeInterfaces": bridges,
+        "output": output,
+    }
+
+
+def remove_previous_host_bridge_forwarding(
+    docker: str,
+    project: str,
+    environment: dict[str, Any],
+    log_path: Path,
+) -> None:
+    state_path = run_dir(project) / "deployment.json"
+    bridge_interfaces = [
+        bridge_interface_name(project, network)
+        for network in environment.get("networks", [])
+        if (network.get("driver") or "bridge") == "bridge"
+    ]
+    if not state_path.exists():
+        remove_host_bridge_forwarding(docker, bridge_interfaces, log_path)
+        return
+    try:
+        state = load_json(state_path)
+    except Exception as exc:
+        with log_path.open("a") as log:
+            log.write(f"Skipping previous host bridge forwarding cleanup: {exc}\n")
+        remove_host_bridge_forwarding(docker, bridge_interfaces, log_path)
+        return
+    bridge_interfaces.extend(state_bridge_interfaces(state))
+    remove_host_bridge_forwarding(docker, bridge_interfaces, log_path)
+
+
+def remove_host_bridge_forwarding(
+    docker: str,
+    bridge_interfaces: list[str],
+    log_path: Path | None = None,
+) -> None:
+    bridges = sorted({bridge for bridge in bridge_interfaces if isinstance(bridge, str) and bridge})
+    if len(bridges) < 2:
+        return
+    run(
+        [
+            docker,
+            "run",
+            "--rm",
+            "--privileged",
+            "--network",
+            "host",
+            "alpine:latest",
+            "sh",
+            "-lc",
+            host_bridge_firewall_script(bridges, action="remove"),
+        ],
+        log_path=log_path,
+        check=False,
+        capture=True,
+    )
+
+
+def state_bridge_interfaces(state: dict[str, Any]) -> list[str]:
+    bridge_interfaces = state.get("bridgeInterfaces")
+    if isinstance(bridge_interfaces, list):
+        return [bridge for bridge in bridge_interfaces if isinstance(bridge, str)]
+
+    host_firewall = state.get("hostFirewall")
+    if isinstance(host_firewall, dict) and isinstance(host_firewall.get("bridgeInterfaces"), list):
+        return [bridge for bridge in host_firewall["bridgeInterfaces"] if isinstance(bridge, str)]
+
+    return []
+
+
+def host_bridge_firewall_script(bridges: list[str], *, action: str) -> str:
+    quoted_bridges = " ".join(shlex.quote(bridge) for bridge in bridges)
+    operation = "add" if action == "add" else "remove"
+    return (
+        f"set -u; action={operation}; bridges='{quoted_bridges}'; "
+        "if command -v apk >/dev/null 2>&1; then "
+        "apk add --no-cache iptables iptables-legacy >/tmp/cyblocks-host-iptables.log 2>&1 || true; "
+        "fi; "
+        "status=0; configured=0; "
+        "for fw in iptables iptables-legacy iptables-nft; do "
+        "if ! command -v \"$fw\" >/dev/null 2>&1; then echo \"$fw=missing\"; continue; fi; "
+        "if [ \"$action\" = add ]; then "
+        "\"$fw\" -N DOCKER-USER >/dev/null 2>&1 || true; "
+        "\"$fw\" -C FORWARD -j DOCKER-USER >/dev/null 2>&1 "
+        "|| \"$fw\" -I FORWARD 1 -j DOCKER-USER >/dev/null 2>&1 || status=1; "
+        "fi; "
+        "for src in $bridges; do "
+        "for dst in $bridges; do "
+        "if [ \"$action\" = add ]; then "
+        "if \"$fw\" -C DOCKER-USER -i \"$src\" -o \"$dst\" -j ACCEPT >/dev/null 2>&1; then "
+        ":; "
+        "else "
+        "\"$fw\" -I DOCKER-USER 1 -i \"$src\" -o \"$dst\" -j ACCEPT >/dev/null 2>&1 "
+        "|| status=1; "
+        "fi; "
+        "else "
+        "while \"$fw\" -D DOCKER-USER -i \"$src\" -o \"$dst\" -j ACCEPT >/dev/null 2>&1; do "
+        ":; "
+        "done; "
+        "fi; "
+        "done; "
+        "done; "
+        "configured=1; "
+        "echo \"### $fw DOCKER-USER\"; \"$fw\" -S DOCKER-USER 2>&1 || true; "
+        "done; "
+        "if [ \"$configured\" != 1 ]; then "
+        "echo 'no iptables backend available for Docker host bridge forwarding' >&2; "
+        "status=1; "
+        "fi; "
+        "exit \"$status\""
+    )
 
 
 def remove_project_containers(docker: str, project: str, log_path: Path) -> None:
@@ -92,7 +272,7 @@ def remove_project_containers(docker: str, project: str, log_path: Path) -> None
 
 
 def remove_project_networks(docker: str, environment: dict[str, Any], project: str, log_path: Path) -> None:
-    network_names = {slug(network.get("name") or network["id"]) for network in environment.get("networks", [])}
+    network_names = {network_name(network) for network in environment.get("networks", [])}
 
     labeled = run(
         [docker, "network", "ls", "-q", "--filter", f"label=cyblocks.project={project}"],
@@ -112,8 +292,8 @@ def remove_project_networks(docker: str, environment: dict[str, Any], project: s
         if name == f"{project}-net" or name.startswith(f"{project}-"):
             network_names.add(name)
 
-    for network_name in sorted(network_names):
-        run([docker, "network", "rm", network_name], log_path=log_path, check=False, capture=True)
+    for docker_network_name in sorted(network_names):
+        run([docker, "network", "rm", docker_network_name], log_path=log_path, check=False, capture=True)
 
 
 def write_host_content(host_dir: Path, host: dict[str, Any], environment: dict[str, Any]) -> None:
@@ -146,12 +326,17 @@ def deploy(environment: dict[str, Any], *, docker: str, replace: bool, project_o
 
     ensure_docker_ready(docker, log_path)
     if replace:
+        remove_previous_host_bridge_forwarding(docker, project, environment, log_path)
         remove_project_containers(docker, project, log_path)
         remove_project_networks(docker, environment, project, log_path)
 
     networks = environment.get("networks") or [{"id": "default", "name": f"{project}-net", "driver": "bridge"}]
+    bridge_interfaces = []
     for network in networks:
-        ensure_network(docker, network, project, log_path)
+        bridge_interface = ensure_network(docker, network, project, log_path)
+        if bridge_interface:
+            bridge_interfaces.append(bridge_interface)
+    host_firewall = ensure_host_bridge_forwarding(docker, bridge_interfaces, log_path)
 
     containers = []
     routers = []
@@ -164,11 +349,13 @@ def deploy(environment: dict[str, Any], *, docker: str, replace: bool, project_o
 
     apply_routes(docker, environment, project, log_path)
     checks = verify_connections(docker, environment, project, containers, log_path)
-    network_names = [slug(network.get("name") or network["id"]) for network in networks]
+    network_names = [network_name(network) for network in networks]
     state = {
         "project": project,
         "network": network_names[0] if len(network_names) == 1 else None,
         "networks": network_names,
+        "bridgeInterfaces": bridge_interfaces,
+        "hostFirewall": host_firewall,
         "environment": environment["name"],
         "containers": containers,
         "routers": routers,
@@ -193,7 +380,7 @@ def deploy_router(
     interfaces = router.get("interfaces", [])
     primary = interfaces[0] if interfaces else None
     primary_network = network_for_subnet(environment, primary.get("subnetId") if primary else None)
-    primary_network_name = slug(primary_network.get("name") or primary_network["id"])
+    primary_network_name = network_name(primary_network)
     primary_ip = primary.get("ipAddress") if primary else member_ip(primary_network, router["id"])
 
     run([docker, "pull", image], log_path=log_path)
@@ -226,7 +413,7 @@ def deploy_router(
         connect_cmd = [docker, "network", "connect"]
         if interface.get("ipAddress"):
             connect_cmd.extend(["--ip", interface["ipAddress"]])
-        connect_cmd.extend([slug(network.get("name") or network["id"]), name])
+        connect_cmd.extend([network_name(network), name])
         run(connect_cmd, log_path=log_path)
 
     forwarding = run(
@@ -264,7 +451,7 @@ def deploy_host(
     image = host["dockerImage"]
     host_dir = env_run_dir / "hosts" / host["hostname"]
     network = network_for_subnet(environment, host.get("primarySubnet"))
-    network_name = slug(network.get("name") or network["id"])
+    docker_network_name = network_name(network)
     ip_address = member_ip(network, host["id"]) or host.get("ipAddresses", {}).get(network["id"])
     write_host_content(host_dir, host, environment)
 
@@ -283,7 +470,7 @@ def deploy_host(
         "--hostname",
         host["hostname"],
         "--network",
-        network_name,
+        docker_network_name,
         "--label",
         f"cyblocks.project={project}",
         "--cap-add",
