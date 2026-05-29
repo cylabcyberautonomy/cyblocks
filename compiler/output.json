@@ -1,0 +1,57 @@
+{
+  "name": "cyblocks_network",
+  "compiled_at": "2026-05-29T14:47:13.740744Z",
+  "networks": [
+    {
+      "name": "cyblocks_network",
+      "subnets": [
+        {
+          "name": "subnet_0",
+          "cidr": "192.168.200.0/24",
+          "dns_servers": [
+            "8.8.8.8"
+          ],
+          "hosts": [
+            {
+              "name": "host-custom-1",
+              "image": "ubuntu_base",
+              "ip_address": "192.168.200.10",
+              "ram_gb": 4,
+              "storage_gb": 64
+            },
+            {
+              "name": "host-small-2",
+              "image": "ubuntu_base",
+              "ip_address": "192.168.200.11",
+              "ram_gb": 2,
+              "storage_gb": 32
+            },
+            {
+              "name": "host-large-3",
+              "image": "ubuntu_base",
+              "ip_address": "192.168.200.12",
+              "ram_gb": 8,
+              "storage_gb": 128
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "subnet_connections": [
+    {
+      "from_host": "host-custom-1",
+      "to_host": "host-small-2",
+      "port": "8080",
+      "label": "link.1",
+      "bidirectional": true
+    },
+    {
+      "from_host": "host-large-3",
+      "to_host": "host-custom-1",
+      "port": "8080",
+      "label": "link.2",
+      "bidirectional": true
+    }
+  ]
+}
