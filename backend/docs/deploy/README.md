@@ -61,7 +61,7 @@ For multi-subnet router examples, expect:
 ip_forward=1 nat=masquerade
 ```
 
-If router NAT cannot be configured, deploy fails during router setup with a `router NAT setup failed` message instead of timing out later during the HTTP reachability checks.
+If router NAT cannot be configured, deploy fails during router setup with a `router NAT setup failed` message instead of timing out later during the HTTP reachability checks. Router setup configures every available `iptables`, `iptables-legacy`, and `iptables-nft` backend because some Linux/WSL Docker installs keep active forwarding rules in legacy tables.
 If a `wget` reachability check still times out, the deploy log includes `Cyblocks connection diagnostics` sections with the source route table, source interfaces, target local HTTP check, target routes/interfaces, and router forwarding/NAT state.
 
 ## Docker Notes
