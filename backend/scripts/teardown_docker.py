@@ -15,7 +15,13 @@ from backend_common import (
     run,
     run_dir,
 )
-from deploy_docker import inspect_bridge_interface, remove_host_bridge_forwarding, state_bridge_interfaces
+from deploy_docker import (
+    build_network_plan,
+    inspect_bridge_interface,
+    remove_container_if_exists,
+    remove_host_bridge_forwarding,
+    state_bridge_interfaces,
+)
 
 
 def state_container_names(state: dict) -> set[str]:
@@ -36,9 +42,10 @@ def state_network_names(state: dict) -> set[str]:
 
 
 def environment_bridge_interfaces(project: str, environment: dict) -> list[str]:
+    network_plan = build_network_plan(environment, project)
     return [
         bridge_interface_name(project, network)
-        for network in environment.get("networks", [])
+        for network in network_plan.get("dockerNetworks", [])
         if (network.get("driver") or "bridge") == "bridge"
     ]
 
@@ -67,14 +74,12 @@ def teardown(environment: dict, *, docker: str, project_override: str | None = N
         remove_host_bridge_forwarding(docker, sorted(bridge_interfaces))
         for container in [*state.get("containers", []), *state.get("routers", [])]:
             container_name = container["container"]
-            run([docker, "rm", "-f", container_name], check=False)
-            removed_containers.append(container_name)
-        for network in state.get("networks", []):
-            run([docker, "network", "rm", network], check=False)
+            if remove_container_if_exists(docker, container_name):
+                removed_containers.append(container_name)
+        state_networks = state_network_names(state)
+        for network in sorted(state_networks):
+            run([docker, "network", "rm", network], check=False, capture=True)
             removed_networks.append(network)
-        if state.get("network"):
-            run([docker, "network", "rm", state["network"]], check=False)
-            removed_networks.append(state["network"])
         state_path.unlink()
     else:
         remove_host_bridge_forwarding(docker, environment_bridge_interfaces(project, environment))
@@ -92,12 +97,14 @@ def teardown(environment: dict, *, docker: str, project_override: str | None = N
     )
     container_ids = [line for line in (result.stdout or "").splitlines() if line.strip()]
     if container_ids:
-        run([docker, "rm", "-f", *container_ids], check=False)
+        run([docker, "rm", "-f", *container_ids], check=False, capture=True)
         removed_containers.extend(container_ids)
 
-    network_names = {network_name(network) for network in environment.get("networks", [])}
+    network_plan = build_network_plan(environment, project)
+    network_names = {network_name(network) for network in network_plan.get("dockerNetworks", [])}
+    network_names.update(network_name(network) for network in environment.get("networks", []))
     labeled = run(
-        [docker, "network", "ls", "-q", "--filter", f"label=cyblocks.project={project}"],
+        [docker, "network", "ls", "--format", "{{.Name}}", "--filter", f"label=cyblocks.project={project}"],
         capture=True,
         check=False,
     )
@@ -110,7 +117,7 @@ def teardown(environment: dict, *, docker: str, project_override: str | None = N
     remove_host_bridge_forwarding(docker, docker_network_bridge_interfaces(docker, network_names))
 
     for network in sorted(network_names):
-        run([docker, "network", "rm", network], check=False)
+        run([docker, "network", "rm", network], check=False, capture=True)
         removed_networks.append(network)
 
     return {

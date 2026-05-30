@@ -111,6 +111,13 @@ python3 backend/scripts/teardown_docker.py backend/generated/vulnerable-hosts.in
 
 The frontend `Quit` button performs a broader cleanup than project teardown: it removes every Docker container/network with the `cyblocks.project` label, clears Cyblocks routed bridge firewall rules recorded in deployment state, and deletes deployment state under `backend/runs/` so reused fixed subnets are released before the next compile/deploy cycle. Run `python3 backend/scripts/teardown_docker.py --all` for the same Docker cleanup without stopping the dev servers.
 
+WSL note: if deploy logs show Docker image pulls, `apk add`, or `wget` downloads timing out on a Linux/WSL machine, treat it as a WSL/Docker DNS issue first. Restart WSL/Docker and verify DNS from an Alpine container before debugging Cyblocks routes:
+
+```bash
+docker run --rm alpine:latest nslookup dl-cdn.alpinelinux.org
+docker run --rm alpine:latest wget -S -O- --timeout=5 http://example.com/
+```
+
 Design notes for the future Docker/container mapping live in [docs/docker-canvas-ide-chat-helper.md](docs/docker-canvas-ide-chat-helper.md).
 
 ## More Docs

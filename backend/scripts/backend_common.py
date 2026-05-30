@@ -127,7 +127,10 @@ def run(
     )
     if capture and log_path:
         with log_path.open("a") as log:
-            log.write(result.stdout or "")
+            output = result.stdout or ""
+            log.write(output)
+            if output and not output.endswith("\n"):
+                log.write("\n")
     if check and result.returncode != 0:
         if capture and result.stdout:
             sys.stderr.write(result.stdout)

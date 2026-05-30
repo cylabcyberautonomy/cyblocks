@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import shlex
 from pathlib import Path
 from typing import Any
@@ -50,9 +51,72 @@ def member_ip(network: dict[str, Any], node_id: str) -> str | None:
     return None
 
 
+def build_network_plan(environment: dict[str, Any], project: str) -> dict[str, Any]:
+    source_networks = environment.get("networks") or [
+        {"id": "default", "name": f"{project}-net", "driver": "bridge"}
+    ]
+    if use_routed_carrier_network(environment, source_networks):
+        carrier = {
+            "id": "__cyblocks-routed-carrier__",
+            "name": f"{project}-routed-carrier",
+            "driver": "bridge",
+            "cidr": covering_cidr([network["cidr"] for network in source_networks if network.get("cidr")]),
+            "topologyCidrs": [network["cidr"] for network in source_networks if network.get("cidr")],
+        }
+        return {
+            "mode": "routed-carrier",
+            "sourceNetworks": source_networks,
+            "dockerNetworks": [carrier],
+            "subnetToDockerNetwork": {
+                network["id"]: network_name(carrier)
+                for network in source_networks
+                if network.get("id")
+            },
+        }
+    return {
+        "mode": "native-bridges",
+        "sourceNetworks": source_networks,
+        "dockerNetworks": source_networks,
+        "subnetToDockerNetwork": {
+            network["id"]: network_name(network)
+            for network in source_networks
+            if network.get("id")
+        },
+    }
+
+
+def use_routed_carrier_network(environment: dict[str, Any], networks: list[dict[str, Any]]) -> bool:
+    return (
+        len(networks) > 1
+        and bool(environment.get("routers"))
+        and all((network.get("driver") or "bridge") == "bridge" and network.get("cidr") for network in networks)
+    )
+
+
+def covering_cidr(cidrs: list[str]) -> str:
+    networks = [ipaddress.ip_network(cidr, strict=False) for cidr in cidrs]
+    first = min(int(network.network_address) for network in networks)
+    last = max(int(network.broadcast_address) for network in networks)
+    for prefix in range(32, -1, -1):
+        candidate = ipaddress.ip_network((first, prefix), strict=False)
+        if int(candidate.network_address) <= first and int(candidate.broadcast_address) >= last:
+            return str(candidate)
+    raise SystemExit(f"Could not build Docker carrier subnet for {', '.join(cidrs)}")
+
+
+def docker_network_for_subnet(
+    network_plan: dict[str, Any],
+    environment: dict[str, Any],
+    subnet_id: str | None,
+) -> str:
+    if subnet_id and subnet_id in network_plan.get("subnetToDockerNetwork", {}):
+        return network_plan["subnetToDockerNetwork"][subnet_id]
+    return network_name(network_for_subnet(environment, subnet_id))
+
+
 def ensure_network(docker: str, network: dict[str, Any], project: str, log_path: Path) -> str | None:
     docker_network_name = network_name(network)
-    existing = run([docker, "network", "inspect", docker_network_name], log_path=log_path, check=False, capture=True)
+    existing = run([docker, "network", "inspect", docker_network_name], check=False, capture=True)
     if existing.returncode == 0:
         return inspect_bridge_interface(docker, docker_network_name, log_path)
     driver = network.get("driver") or "bridge"
@@ -77,6 +141,8 @@ def ensure_network(docker: str, network: dict[str, Any], project: str, log_path:
                 "com.docker.network.bridge.enable_ip_masquerade=true",
             ]
         )
+    for cidr in network.get("cidrs", []):
+        cmd.extend(["--subnet", str(cidr)])
     if network.get("cidr"):
         cmd.extend(["--subnet", str(network["cidr"])])
     cmd.append(docker_network_name)
@@ -154,13 +220,13 @@ def ensure_host_bridge_forwarding(docker: str, bridge_interfaces: list[str], log
 def remove_previous_host_bridge_forwarding(
     docker: str,
     project: str,
-    environment: dict[str, Any],
+    network_plan: dict[str, Any],
     log_path: Path,
 ) -> None:
     state_path = run_dir(project) / "deployment.json"
     bridge_interfaces = [
         bridge_interface_name(project, network)
-        for network in environment.get("networks", [])
+        for network in network_plan.get("dockerNetworks", [])
         if (network.get("driver") or "bridge") == "bridge"
     ]
     if not state_path.exists():
@@ -271,11 +337,35 @@ def remove_project_containers(docker: str, project: str, log_path: Path) -> None
         run([docker, "rm", "-f", *container_ids], log_path=log_path, check=False)
 
 
-def remove_project_networks(docker: str, environment: dict[str, Any], project: str, log_path: Path) -> None:
-    network_names = {network_name(network) for network in environment.get("networks", [])}
+def remove_container_if_exists(docker: str, name: str, log_path: Path | None = None) -> bool:
+    result = run(
+        [docker, "ps", "-aq", "--filter", f"name=^/{name}$"],
+        log_path=log_path,
+        capture=True,
+        check=False,
+    )
+    container_ids = [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
+    if not container_ids:
+        if log_path:
+            with log_path.open("a") as log:
+                log.write(f"Skipping missing container {name}; nothing to remove.\n")
+        return False
+    run([docker, "rm", "-f", *container_ids], log_path=log_path, check=False, capture=True)
+    return True
+
+
+def remove_project_networks(
+    docker: str,
+    environment: dict[str, Any],
+    project: str,
+    log_path: Path,
+    network_plan: dict[str, Any],
+) -> None:
+    network_names = {network_name(network) for network in network_plan.get("dockerNetworks", [])}
+    network_names.update(network_name(network) for network in environment.get("networks", []))
 
     labeled = run(
-        [docker, "network", "ls", "-q", "--filter", f"label=cyblocks.project={project}"],
+        [docker, "network", "ls", "--format", "{{.Name}}", "--filter", f"label=cyblocks.project={project}"],
         log_path=log_path,
         capture=True,
         check=False,
@@ -293,6 +383,15 @@ def remove_project_networks(docker: str, environment: dict[str, Any], project: s
             network_names.add(name)
 
     for docker_network_name in sorted(network_names):
+        existing = run(
+            [docker, "network", "inspect", docker_network_name],
+            check=False,
+            capture=True,
+        )
+        if existing.returncode != 0:
+            with log_path.open("a") as log:
+                log.write(f"Skipping missing network {docker_network_name}; nothing to remove.\n")
+            continue
         run([docker, "network", "rm", docker_network_name], log_path=log_path, check=False, capture=True)
 
 
@@ -324,15 +423,15 @@ def deploy(environment: dict[str, Any], *, docker: str, replace: bool, project_o
     env_run_dir.mkdir(parents=True, exist_ok=True)
     log_path.write_text("")
 
+    network_plan = build_network_plan(environment, project)
     ensure_docker_ready(docker, log_path)
     if replace:
-        remove_previous_host_bridge_forwarding(docker, project, environment, log_path)
+        remove_previous_host_bridge_forwarding(docker, project, network_plan, log_path)
         remove_project_containers(docker, project, log_path)
-        remove_project_networks(docker, environment, project, log_path)
+        remove_project_networks(docker, environment, project, log_path, network_plan)
 
-    networks = environment.get("networks") or [{"id": "default", "name": f"{project}-net", "driver": "bridge"}]
     bridge_interfaces = []
-    for network in networks:
+    for network in network_plan["dockerNetworks"]:
         bridge_interface = ensure_network(docker, network, project, log_path)
         if bridge_interface:
             bridge_interfaces.append(bridge_interface)
@@ -341,19 +440,23 @@ def deploy(environment: dict[str, Any], *, docker: str, replace: bool, project_o
     containers = []
     routers = []
     for router in environment.get("routers", []):
-        router_state = deploy_router(docker, environment, router, project, log_path, replace)
+        router_state = deploy_router(docker, environment, router, project, log_path, replace, network_plan)
         routers.append(router_state)
 
     for host in environment.get("hosts", []):
-        containers.append(deploy_host(docker, environment, host, project, env_run_dir, log_path, replace))
+        containers.append(
+            deploy_host(docker, environment, host, project, env_run_dir, log_path, replace, network_plan)
+        )
 
     apply_routes(docker, environment, project, log_path)
     checks = verify_connections(docker, environment, project, containers, log_path)
-    network_names = [network_name(network) for network in networks]
+    network_names = [network_name(network) for network in network_plan["dockerNetworks"]]
     state = {
         "project": project,
         "network": network_names[0] if len(network_names) == 1 else None,
         "networks": network_names,
+        "networkMode": network_plan["mode"],
+        "topologyNetworks": [network_name(network) for network in network_plan["sourceNetworks"]],
         "bridgeInterfaces": bridge_interfaces,
         "hostFirewall": host_firewall,
         "environment": environment["name"],
@@ -374,18 +477,23 @@ def deploy_router(
     project: str,
     log_path: Path,
     replace: bool,
+    network_plan: dict[str, Any],
 ) -> dict[str, str]:
     name = container_name(project, router["name"])
     image = router["dockerImage"]
     interfaces = router.get("interfaces", [])
     primary = interfaces[0] if interfaces else None
     primary_network = network_for_subnet(environment, primary.get("subnetId") if primary else None)
-    primary_network_name = network_name(primary_network)
+    primary_network_name = docker_network_for_subnet(
+        network_plan,
+        environment,
+        primary.get("subnetId") if primary else None,
+    )
     primary_ip = primary.get("ipAddress") if primary else member_ip(primary_network, router["id"])
 
     run([docker, "pull", image], log_path=log_path)
     if replace:
-        run([docker, "rm", "-f", name], log_path=log_path, check=False, capture=True)
+        remove_container_if_exists(docker, name, log_path)
 
     cmd = [
         docker,
@@ -408,13 +516,18 @@ def deploy_router(
     cmd.extend([image, "sh", "-c", "while true; do sleep 3600; done"])
     run(cmd, log_path=log_path)
 
-    for interface in interfaces[1:]:
-        network = network_for_subnet(environment, interface["subnetId"])
-        connect_cmd = [docker, "network", "connect"]
-        if interface.get("ipAddress"):
-            connect_cmd.extend(["--ip", interface["ipAddress"]])
-        connect_cmd.extend([network_name(network), name])
-        run(connect_cmd, log_path=log_path)
+    if network_plan.get("mode") == "routed-carrier":
+        if primary and primary_ip:
+            normalize_carrier_interface(docker, name, primary_ip, primary["cidr"], log_path)
+        add_router_carrier_ips(docker, name, interfaces[1:], log_path)
+    else:
+        for interface in interfaces[1:]:
+            network = network_for_subnet(environment, interface["subnetId"])
+            connect_cmd = [docker, "network", "connect"]
+            if interface.get("ipAddress"):
+                connect_cmd.extend(["--ip", interface["ipAddress"]])
+            connect_cmd.extend([network_name(network), name])
+            run(connect_cmd, log_path=log_path)
 
     forwarding = run(
         [
@@ -423,7 +536,9 @@ def deploy_router(
             name,
             "sh",
             "-lc",
-            router_forwarding_command(require_nat=len(interfaces) > 1),
+            router_forwarding_command(
+                require_nat=len(interfaces) > 1 and network_plan.get("mode") != "routed-carrier"
+            ),
         ],
         log_path=log_path,
         check=True,
@@ -438,6 +553,55 @@ def deploy_router(
     }
 
 
+def add_router_carrier_ips(
+    docker: str,
+    container: str,
+    interfaces: list[dict[str, Any]],
+    log_path: Path,
+) -> None:
+    assignments = []
+    for interface in interfaces:
+        if not interface.get("ipAddress") or not interface.get("cidr"):
+            continue
+        prefix = interface["cidr"].split("/", 1)[1]
+        assignments.append(f"{interface['ipAddress']}/{prefix}")
+    if not assignments:
+        return
+    quoted_assignments = " ".join(shlex.quote(assignment) for assignment in assignments)
+    command = (
+        f"set -eu; assignments='{quoted_assignments}'; "
+        "dev=${CYBLOCKS_ROUTER_DEV:-eth0}; "
+        "for address in $assignments; do "
+        "ip addr show dev \"$dev\" | grep -F \"inet ${address%/*}/\" >/dev/null 2>&1 "
+        "|| ip addr add \"$address\" dev \"$dev\"; "
+        "done"
+    )
+    run([docker, "exec", container, "sh", "-lc", command], log_path=log_path, capture=True)
+
+
+def normalize_carrier_interface(
+    docker: str,
+    container: str,
+    ip_address: str,
+    cidr: str,
+    log_path: Path,
+) -> None:
+    prefix = cidr.split("/", 1)[1]
+    desired = f"{ip_address}/{prefix}"
+    command = (
+        f"set -eu; desired={shlex.quote(desired)}; dev=${{CYBLOCKS_ROUTER_DEV:-eth0}}; "
+        "current=$(ip -o -4 addr show dev \"$dev\" | awk '{print $4}'); "
+        "for address in $current; do ip addr del \"$address\" dev \"$dev\" 2>/dev/null || true; done; "
+        "ip addr add \"$desired\" dev \"$dev\"; "
+        "ip link set \"$dev\" up; "
+        "for setting in /proc/sys/net/ipv4/conf/*/rp_filter; do "
+        "[ -e \"$setting\" ] || continue; "
+        "(echo 0 > \"$setting\") 2>/dev/null || true; "
+        "done"
+    )
+    run([docker, "exec", container, "sh", "-lc", command], log_path=log_path, capture=True)
+
+
 def deploy_host(
     docker: str,
     environment: dict[str, Any],
@@ -446,19 +610,20 @@ def deploy_host(
     env_run_dir: Path,
     log_path: Path,
     replace: bool,
+    network_plan: dict[str, Any],
 ) -> dict[str, str]:
     name = container_name(project, host["hostname"])
     image = host["dockerImage"]
     host_dir = env_run_dir / "hosts" / host["hostname"]
     network = network_for_subnet(environment, host.get("primarySubnet"))
-    docker_network_name = network_name(network)
+    docker_network_name = docker_network_for_subnet(network_plan, environment, host.get("primarySubnet"))
     ip_address = member_ip(network, host["id"]) or host.get("ipAddresses", {}).get(network["id"])
     write_host_content(host_dir, host, environment)
 
     run([docker, "pull", image], log_path=log_path)
 
     if replace:
-        run([docker, "rm", "-f", name], log_path=log_path, check=False, capture=True)
+        remove_container_if_exists(docker, name, log_path)
 
     volume = f"{host_dir.resolve()}:/usr/share/nginx/html:ro"
     cmd = [
@@ -493,6 +658,8 @@ def deploy_host(
 
     cmd.append(image)
     run(cmd, log_path=log_path)
+    if network_plan.get("mode") == "routed-carrier" and ip_address:
+        normalize_carrier_interface(docker, name, ip_address, network["cidr"], log_path)
     return {"hostId": host["id"], "hostname": host["hostname"], "container": name, "image": image}
 
 
@@ -747,7 +914,7 @@ def router_forwarding_command(*, require_nat: bool) -> str:
     require_nat_value = "1" if require_nat else "0"
     return (
         f"set -eu; require_nat={require_nat_value}; "
-        "if ! command -v iptables >/dev/null 2>&1; then "
+        "if [ \"$require_nat\" = \"1\" ] && ! command -v iptables >/dev/null 2>&1; then "
         "if command -v apk >/dev/null 2>&1; then "
         "apk add --no-cache iptables iptables-legacy >/tmp/cyblocks-router-iptables.log 2>&1 || true; "
         "elif command -v apt-get >/dev/null 2>&1; then "
@@ -760,6 +927,10 @@ def router_forwarding_command(*, require_nat: bool) -> str:
         "sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true; "
         "fi; "
         "for setting in /proc/sys/net/ipv4/conf/*/rp_filter; do "
+        "[ -e \"$setting\" ] || continue; "
+        "(echo 0 > \"$setting\") 2>/dev/null || true; "
+        "done; "
+        "for setting in /proc/sys/net/ipv4/conf/*/send_redirects; do "
         "[ -e \"$setting\" ] || continue; "
         "(echo 0 > \"$setting\") 2>/dev/null || true; "
         "done; "
