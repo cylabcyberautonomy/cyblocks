@@ -9,17 +9,32 @@ It assumes these folders exist:
 /Users/mycomputer/Documents/GitHub/Incalmo
 ```
 
-## 1. Start Docker
+## 1. Start Docker Engine
 
-Open Docker Desktop.
+Start Docker Engine on this PC.
+
+Cyblocks does not need Docker Desktop specifically. It only needs the Docker CLI connected to a working Docker Engine.
+
+If you use Colima on macOS:
+
+```bash
+colima start --cpu 2 --memory 4 --disk 20
+```
+
+If you use Linux Docker Engine:
+
+```bash
+sudo systemctl start docker
+```
 
 Then check Docker from any terminal:
 
 ```bash
 docker info
+docker compose version
 ```
 
-Continue only after `docker info` works.
+Continue only after both commands work.
 
 ## 2. Start The Cyblocks Backend
 
@@ -161,7 +176,7 @@ Then stop the Cyblocks dev servers:
 If `docker info` fails:
 
 ```text
-Start Docker Desktop and try again.
+Start Docker Engine and try again.
 ```
 
 If the browser cannot reach the backend:
