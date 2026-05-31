@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, Code2, FileDown, Power, RefreshCcw, Rocket, Square, X } from "lucide-react";
+import { Activity, Code2, FileDown, Plus, Power, RefreshCcw, Rocket, Square, Trash2, X } from "lucide-react";
 
 const BLOCK_WIDTH = 132;
 const BLOCK_HEIGHT = 56;
 const API_BASE_URL = import.meta.env.VITE_CYBLOCKS_API_URL || "http://127.0.0.1:8787";
-const DEFAULT_BOARD_NAME = "vulnerable-hosts";
+const DEFAULT_BOARD_NAME = "incalmo-equifax";
 const DEFAULT_OS_IMAGE_PATH = "docker://nginx:alpine";
 const DEFAULT_ROUTER_IMAGE_PATH = "docker://alpine:latest";
 const DEFAULT_CONNECTION_LABEL = "http";
 const DEFAULT_CONNECTION_PORT = "80";
-const STORAGE_KEY = "simple-block-board-state-v8";
+const STORAGE_KEY = "simple-block-board-state-v9";
 
 const BLOCK_TYPES = [
   { id: "host-small", kind: "host", label: "host.small", color: "#ff8a7a", ramGb: 2, storageGb: 32 },
@@ -34,6 +34,7 @@ const BLOCK_TYPES = [
   {
     id: "service-vsftpd",
     kind: "service",
+    palette: false,
     label: "vsftpd",
     color: "#b8e986",
     service: {
@@ -53,7 +54,7 @@ const BLOCK_TYPES = [
     service: {
       name: "ssh-service",
       product: "OpenSSH",
-      version: "7.2p2",
+      version: "8.x",
       protocol: "ssh",
       port: "22",
       mhbenchVmType: "ubuntu_base_running"
@@ -62,6 +63,7 @@ const BLOCK_TYPES = [
   {
     id: "service-netcat",
     kind: "service",
+    palette: false,
     label: "netcat.shell",
     color: "#a7f0d5",
     service: {
@@ -76,6 +78,7 @@ const BLOCK_TYPES = [
   {
     id: "service-sudo",
     kind: "service",
+    palette: false,
     label: "sudo",
     color: "#e5c4ff",
     service: {
@@ -97,14 +100,15 @@ const BLOCK_TYPES = [
       name: "Struts Jakarta multipart RCE",
       category: "cve",
       severity: "critical",
-      summary: "Apache Struts 2.3.31 exposes the Jakarta multipart parser remote code execution path.",
-      source: "MHBench setup_struts",
-      playbooks: [{ name: "setup_struts", args: { host: "$host" } }]
+      summary: "Incalmo's Equifax webserver exposes the vulnerable Struts/Tomcat service on TCP 8080.",
+      source: "Incalmo docker/equifax/webserver",
+      playbooks: []
     }
   },
   {
     id: "vuln-vsftpd-backdoor",
     kind: "vulnerability",
+    palette: false,
     label: "CVE-2011-2523",
     color: "#ffcf8a",
     vulnerability: {
@@ -120,28 +124,23 @@ const BLOCK_TYPES = [
   {
     id: "misconfig-root-ssh-trust",
     kind: "misconfiguration",
-    label: "ssh.root.trust",
+    label: "web.db.ssh.key",
     color: "#ffe082",
     vulnerability: {
       id: "MISCONFIG-ROOT-SSH-KEY",
-      name: "Web root key trusted by database",
+      name: "Tomcat SSH key trusted by database",
       category: "credential-trust",
       severity: "high",
-      summary: "A root SSH key on the web server is trusted by the database host.",
-      source: "MHBench setup_ssh_keys",
+      summary: "The Equifax webserver contains a Tomcat user's SSH key and config for the database host.",
+      source: "Incalmo docker/equifax webserver/database Dockerfiles",
       sourceHostId: "",
-      playbooks: [
-        { name: "enable_root_ssh", args: { host: "$host" } },
-        {
-          name: "setup_ssh_keys",
-          args: { host: "$sourceHost", host_user: "root", follower: "$host", follower_user: "root" }
-        }
-      ]
+      playbooks: []
     }
   },
   {
     id: "misconfig-netcat-listener",
     kind: "misconfiguration",
+    palette: false,
     label: "unauth.shell",
     color: "#b9f3c5",
     vulnerability: {
@@ -157,6 +156,7 @@ const BLOCK_TYPES = [
   {
     id: "vuln-sudo-baron",
     kind: "vulnerability",
+    palette: false,
     label: "CVE-2021-3156",
     color: "#d7c0ff",
     vulnerability: {
@@ -172,6 +172,7 @@ const BLOCK_TYPES = [
   { id: "host-custom", kind: "host", label: "host.custom", color: "#d7a8ff", ramGb: 4, storageGb: 64 }
 ];
 
+const PALETTE_BLOCK_TYPES = BLOCK_TYPES.filter((type) => type.palette !== false);
 const PORT_OPTIONS = [
   { value: "22", label: "22 / ssh" },
   { value: "80", label: "80 / http" },
@@ -186,18 +187,22 @@ const PORT_OPTIONS = [
 const BLOCK_TYPE_MAP = Object.fromEntries(BLOCK_TYPES.map((type) => [type.id, type]));
 
 function loadCanvas() {
-  const fallback = createThreeHostCanvas();
+  const fallback = createIncalmoEquifaxCanvas();
 
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
     const parsed = saved ? JSON.parse(saved) : null;
 
     if (Array.isArray(parsed)) {
-      return { name: fallback.name, blocks: normalizeBlocks(parsed), connections: [] };
+      return { name: fallback.name, blocks: normalizeBlocks(parsed), connections: [], runtimeBlocks: [], incalmo: {} };
     }
 
     if (!parsed) {
-      return fallback;
+      return {
+        ...fallback,
+        runtimeBlocks: normalizeRuntimeBlocks(fallback.runtimeBlocks),
+        incalmo: normalizeIncalmoConfig(fallback.incalmo)
+      };
     }
 
     const blocks = normalizeBlocks(Array.isArray(parsed?.blocks) ? parsed.blocks : []);
@@ -205,10 +210,16 @@ function loadCanvas() {
     return {
       name: typeof parsed?.name === "string" && parsed.name.trim() ? parsed.name : fallback.name,
       blocks,
-      connections: normalizeConnections(Array.isArray(parsed?.connections) ? parsed.connections : [], blocks)
+      connections: normalizeConnections(Array.isArray(parsed?.connections) ? parsed.connections : [], blocks),
+      runtimeBlocks: normalizeRuntimeBlocks(parsed?.runtimeBlocks),
+      incalmo: normalizeIncalmoConfig(parsed?.incalmo)
     };
   } catch {
-    return fallback;
+    return {
+      ...fallback,
+      runtimeBlocks: normalizeRuntimeBlocks(fallback.runtimeBlocks),
+      incalmo: normalizeIncalmoConfig(fallback.incalmo)
+    };
   }
 }
 
@@ -343,7 +354,13 @@ function normalizeBlocks(blocks) {
           ? block.host.externalDrives
           : Array.isArray(block.externalDrives)
             ? block.externalDrives
-            : defaults.externalDrives
+            : defaults.externalDrives,
+        networkInterfaces: Array.isArray(block.host?.networkInterfaces)
+          ? block.host.networkInterfaces
+          : Array.isArray(block.networkInterfaces)
+            ? block.networkInterfaces
+            : [],
+        incalmo: block.host?.incalmo && typeof block.host.incalmo === "object" ? block.host.incalmo : {}
       }
     };
   });
@@ -361,9 +378,56 @@ function normalizeConnections(connections, blocks = []) {
       ...connection,
       kind,
       label: connection.label || defaultConnectionLabel(kind, index, service),
+      directed: Boolean(connection.directed),
       port: kind === "service" ? String(connection.port ?? defaultPort) : ""
     };
   });
+}
+
+function normalizeRuntimeBlocks(runtimeBlocks) {
+  if (!Array.isArray(runtimeBlocks)) {
+    return [];
+  }
+
+  return runtimeBlocks.map((block, index) => {
+    const control = block.control && typeof block.control === "object" ? block.control : {};
+    const blockId = block.id || control.id || `runtime-${index + 1}`;
+    const ports = Array.isArray(control.ports)
+      ? control.ports
+      : Array.isArray(block.ports)
+        ? block.ports
+        : [];
+
+    return {
+      ...block,
+      id: blockId,
+      kind: block.kind || "control",
+      type: block.type || control.type || "runtime",
+      label: block.label || control.name || blockId,
+      color: block.color || "#dbeafe",
+      order: block.order ?? index,
+      control: {
+        name: control.name || block.label || blockId,
+        role: control.role || "",
+        product: control.product || "",
+        protocol: control.protocol || "",
+        ports: ports.map((port) => String(port)).filter(Boolean),
+        hostId: control.hostId || control.runtimeHostId || "",
+        summary: control.summary || ""
+      }
+    };
+  });
+}
+
+function normalizeIncalmoConfig(value) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    project: source.project || "",
+    strategy: source.strategy || "",
+    environment: source.environment || "",
+    c2Server: source.c2Server || "http://localhost:8888",
+    debug: typeof source.debug === "boolean" ? source.debug : true
+  };
 }
 
 function App() {
@@ -379,6 +443,8 @@ function App() {
   const [boardName, setBoardName] = useState(() => initialCanvasRef.current.name);
   const [blocks, setBlocks] = useState(() => initialCanvasRef.current.blocks);
   const [connections, setConnections] = useState(() => initialCanvasRef.current.connections);
+  const [runtimeBlocks, setRuntimeBlocks] = useState(() => initialCanvasRef.current.runtimeBlocks || []);
+  const [incalmoConfig, setIncalmoConfig] = useState(() => normalizeIncalmoConfig(initialCanvasRef.current.incalmo));
   const [boardSize, setBoardSize] = useState({ width: 900, height: 520 });
   const [connectorDrag, setConnectorDrag] = useState(null);
   const [paletteDrag, setPaletteDrag] = useState(null);
@@ -386,6 +452,10 @@ function App() {
   const [selectedBlockId, setSelectedBlockId] = useState(null);
   const [selectedConnectionId, setSelectedConnectionId] = useState(null);
   const [status, setStatus] = useState("Ready");
+  const [incalmoApiKey, setIncalmoApiKey] = useState("");
+  const [incalmoKeyProvider, setIncalmoKeyProvider] = useState("openai");
+  const [incalmoStatus, setIncalmoStatus] = useState(null);
+  const [incalmoMessage, setIncalmoMessage] = useState("No Incalmo monitor data yet.");
   const [runState, setRunState] = useState({
     phase: "idle",
     message: "No backend run yet.",
@@ -396,11 +466,15 @@ function App() {
   });
   const selectedBlock = blocks.find((block) => block.id === selectedBlockId) || null;
   const selectedConnection = connections.find((connection) => connection.id === selectedConnectionId) || null;
-  const isBackendBusy = ["checking", "compiling", "deploying", "ending", "quitting"].includes(runState.phase);
+  const isBackendBusy = ["checking", "compiling", "exporting", "deploying", "ending", "quitting"].includes(runState.phase);
+  const activeBoardUsesIncalmo = blocks.some(blockUsesIncalmo);
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ name: boardName, blocks, connections }));
-  }, [boardName, blocks, connections]);
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ name: boardName, blocks, connections, runtimeBlocks, incalmo: incalmoConfig })
+    );
+  }, [boardName, blocks, connections, runtimeBlocks, incalmoConfig]);
 
   useEffect(() => {
     const board = boardRef.current;
@@ -694,8 +768,12 @@ function App() {
   function clearBoard() {
     setBlocks([]);
     setConnections([]);
+    setRuntimeBlocks([]);
+    setIncalmoConfig(normalizeIncalmoConfig({}));
     setSelectedBlockId(null);
     setSelectedConnectionId(null);
+    setIncalmoStatus(null);
+    setIncalmoMessage("No Incalmo monitor data yet.");
     setStatus("Cleared board");
   }
 
@@ -717,6 +795,65 @@ function App() {
           : block
       )
     );
+  }
+
+  function updateSelectedHostInterface(index, patch) {
+    if (!selectedBlock) {
+      return;
+    }
+
+    const currentInterfaces = Array.isArray(selectedBlock.host.networkInterfaces)
+      ? selectedBlock.host.networkInterfaces
+      : [];
+
+    updateSelectedBlockHost({
+      networkInterfaces: currentInterfaces.map((networkInterface, itemIndex) =>
+        itemIndex === index
+          ? {
+              ...networkInterface,
+              ...patch
+            }
+          : networkInterface
+      )
+    });
+  }
+
+  function addSelectedHostInterface() {
+    if (!selectedBlock) {
+      return;
+    }
+
+    const currentInterfaces = Array.isArray(selectedBlock.host.networkInterfaces)
+      ? selectedBlock.host.networkInterfaces
+      : [];
+    const nextIndex = currentInterfaces.length + 1;
+    const networkId = `network_${nextIndex}`;
+
+    updateSelectedBlockHost({
+      networkInterfaces: [
+        ...currentInterfaces,
+        {
+          networkId,
+          networkName: networkId,
+          cidr: `10.80.${nextIndex}.0/24`,
+          ipAddress: `10.80.${nextIndex}.10`
+        }
+      ]
+    });
+  }
+
+  function removeSelectedHostInterface(index) {
+    if (!selectedBlock) {
+      return;
+    }
+
+    const currentInterfaces = Array.isArray(selectedBlock.host.networkInterfaces)
+      ? selectedBlock.host.networkInterfaces
+      : [];
+
+    updateSelectedBlockHost({
+      networkInterfaces: currentInterfaces.filter((_, itemIndex) => itemIndex !== index)
+    });
   }
 
   function updateSelectedBlockRouter(patch) {
@@ -864,14 +1001,33 @@ function App() {
   }
 
   function resetBoard() {
-    const sample = createThreeHostCanvas();
+    const sample = createIncalmoEquifaxCanvas();
 
     setBoardName(sample.name);
     setBlocks(sample.blocks);
     setConnections(sample.connections);
+    setRuntimeBlocks(sample.runtimeBlocks || []);
+    setIncalmoConfig(normalizeIncalmoConfig(sample.incalmo));
     setSelectedBlockId(sample.blocks[0]?.id || null);
     setSelectedConnectionId(null);
-    setStatus("Loaded vulnerable-host graph");
+    setIncalmoStatus(null);
+    setIncalmoMessage("Incalmo Equifax runtime controls loaded.");
+    setStatus("Loaded incalmo-equifax graph");
+  }
+
+  function loadIncalmoEquifaxBoard() {
+    const sample = createIncalmoEquifaxCanvas();
+
+    setBoardName(sample.name);
+    setBlocks(sample.blocks);
+    setConnections(sample.connections);
+    setRuntimeBlocks(sample.runtimeBlocks || []);
+    setIncalmoConfig(normalizeIncalmoConfig(sample.incalmo));
+    setSelectedBlockId(sample.blocks[0]?.id || null);
+    setSelectedConnectionId(null);
+    setIncalmoStatus(null);
+    setIncalmoMessage("Incalmo Equifax runtime controls loaded.");
+    setStatus("Loaded incalmo-equifax graph");
   }
 
   function buildVisibleGraph() {
@@ -956,7 +1112,9 @@ function App() {
             storageGb: block.host.storageGb,
             vmType: block.host.vmType,
             flavor: block.host.flavor,
-            externalDrives: block.host.externalDrives
+            externalDrives: block.host.externalDrives,
+            networkInterfaces: block.host.networkInterfaces || [],
+            incalmo: block.host.incalmo || {}
           }
         };
       });
@@ -970,9 +1128,27 @@ function App() {
           label: connection.label,
           from: connection.from,
           to: connection.to,
+          directed: Boolean(connection.directed),
           port: kind === "service" ? connection.port : ""
         };
       });
+    const exportedRuntimeBlocks = runtimeBlocks.map((block, index) => ({
+      id: block.id,
+      order: block.order ?? index,
+      kind: block.kind || "control",
+      type: block.type || "runtime",
+      label: block.label,
+      color: block.color,
+      control: {
+        name: block.control?.name || block.label,
+        role: block.control?.role || "",
+        product: block.control?.product || "",
+        protocol: block.control?.protocol || "",
+        ports: Array.isArray(block.control?.ports) ? block.control.ports : [],
+        hostId: block.control?.hostId || "",
+        summary: block.control?.summary || ""
+      }
+    }));
 
     return {
       kind: "block-board",
@@ -981,8 +1157,14 @@ function App() {
       compiledAt: new Date().toISOString(),
       blockCount: visibleBlocks.length,
       connectionCount: visibleConnections.length,
+      runtimeBlockCount: exportedRuntimeBlocks.length,
+      incalmo: {
+        ...incalmoConfig,
+        project: incalmoConfig.project || outputName
+      },
       blocks: visibleBlocks,
-      connections: visibleConnections
+      connections: visibleConnections,
+      runtimeBlocks: exportedRuntimeBlocks
     };
   }
 
@@ -1035,6 +1217,67 @@ function App() {
     return payload.status;
   }
 
+  async function fetchIncalmoStatus(name = slugName(boardName)) {
+    const response = await fetch(`${API_BASE_URL}/api/incalmo/status?name=${encodeURIComponent(name)}`);
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || `Incalmo status failed with ${response.status}`);
+    }
+
+    return payload.status;
+  }
+
+  async function refreshIncalmoMonitor(name = slugName(boardName)) {
+    setIncalmoMessage("Checking Incalmo compose run...");
+
+    try {
+      const latestStatus = await fetchIncalmoStatus(name);
+      setIncalmoStatus(latestStatus);
+      setIncalmoMessage(
+        latestStatus.composeExists
+          ? `${latestStatus.services.length} Incalmo compose service${latestStatus.services.length === 1 ? "" : "s"} found.`
+          : "No generated Incalmo compose project found."
+      );
+    } catch (error) {
+      setIncalmoMessage(`Incalmo monitor failed: ${error.message}`);
+    }
+  }
+
+  async function submitIncalmoApiKey(event) {
+    event.preventDefault();
+    const apiKey = incalmoApiKey.trim();
+    if (!apiKey) {
+      setIncalmoMessage("Enter an LLM API key before saving.");
+      return;
+    }
+
+    setIncalmoMessage(`Saving ${incalmoKeyProvider} API key to Incalmo .env...`);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/incalmo/api-key`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ provider: incalmoKeyProvider, apiKey })
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || `Request failed with ${response.status}`);
+      }
+
+      setIncalmoApiKey("");
+      setIncalmoMessage(`Saved ${payload.result.keyName} in ${fileName(payload.result.envPath)}.`);
+    } catch (error) {
+      setIncalmoMessage(`API key save failed: ${error.message}`);
+    }
+  }
+
+  function updateIncalmoConfig(patch) {
+    setIncalmoConfig((current) => normalizeIncalmoConfig({ ...current, ...patch }));
+  }
+
   async function compileBoard() {
     setStatus("Compiling board");
     setRunState((current) => ({
@@ -1066,7 +1309,45 @@ function App() {
     }
   }
 
+  async function exportIncalmoCompose() {
+    setStatus("Exporting Incalmo Compose");
+    setRunState((current) => ({
+      ...current,
+      phase: "exporting",
+      message: "Exporting Incalmo Compose...",
+      error: null
+    }));
+
+    try {
+      const payload = await postGraph("/api/export/incalmo");
+      const incalmo = payload.result.incalmo;
+      setRunState({
+        phase: "compiled",
+        message: `Exported Incalmo Compose to ${incalmo.outDir}`,
+        result: payload.result,
+        deployment: null,
+        containers: [],
+        error: null
+      });
+      await refreshIncalmoMonitor(payload.result.name);
+      setStatus(`Exported ${payload.result.name} Incalmo Compose`);
+    } catch (error) {
+      setRunState((current) => ({
+        ...current,
+        phase: "error",
+        message: "Incalmo export failed.",
+        error: error.message
+      }));
+      setStatus("Incalmo export failed");
+    }
+  }
+
   async function deployBoard() {
+    if (activeBoardUsesIncalmo) {
+      await exportIncalmoCompose();
+      return;
+    }
+
     setStatus("Deploying board");
     setRunState((current) => ({
       ...current,
@@ -1159,15 +1440,30 @@ function App() {
       const cleanup = payload.cleanup || {};
       const removedContainers = cleanup.removedContainers?.length || 0;
       const removedNetworks = cleanup.removedNetworks?.length || 0;
+      const dockerVm = cleanup.dockerVm || null;
+      const vmStopFailed = Boolean(dockerVm?.attempted && !dockerVm?.stopped);
+      let vmMessage = "";
+      if (dockerVm?.attempted) {
+        vmMessage = dockerVm.stopped ? "Colima VM stopped." : `Colima VM stop failed: ${dockerVm.message || "unknown error"}.`;
+      } else if (dockerVm?.stopped) {
+        vmMessage = dockerVm.message || "Colima is already stopped.";
+      } else if (dockerVm?.message) {
+        vmMessage = dockerVm.message;
+      }
+      if (vmMessage && !/[.!?]$/.test(vmMessage)) {
+        vmMessage = `${vmMessage}.`;
+      }
       const cleanupMessage = cleanup.error
         ? `Docker cleanup failed: ${cleanup.error}`
         : `removed ${removedContainers} Cyblocks container${removedContainers === 1 ? "" : "s"} and ${removedNetworks} network${removedNetworks === 1 ? "" : "s"}`;
+      const quitError = cleanup.error || (vmStopFailed ? dockerVm.message || "Colima VM stop failed." : null);
+      const quitDetails = vmMessage ? `${cleanupMessage}. ${vmMessage}` : `${cleanupMessage}.`;
 
       setRunState((current) => ({
         ...current,
-        phase: cleanup.error ? "error" : "idle",
-        message: `Quit requested; ${cleanupMessage}. Backend is stopping and frontend port ${payload.frontendPort} is being released.`,
-        error: cleanup.error || null
+        phase: quitError ? "error" : "idle",
+        message: `Quit requested; ${quitDetails} Backend is stopping and frontend port ${payload.frontendPort} is being released.`,
+        error: quitError
       }));
       setStatus("Quit requested");
     } catch (error) {
@@ -1241,7 +1537,7 @@ function App() {
           </label>
           <button type="button" onClick={resetBoard}>
             <RefreshCcw size={17} aria-hidden="true" />
-            <span>Vulnerable Hosts</span>
+            <span>Equifax Sample</span>
           </button>
           <button type="button" onClick={compileBoard} disabled={isBackendBusy}>
             <Code2 size={17} aria-hidden="true" />
@@ -1249,7 +1545,15 @@ function App() {
           </button>
           <button type="button" onClick={deployBoard} disabled={isBackendBusy}>
             <Rocket size={17} aria-hidden="true" />
-            <span>{runState.phase === "deploying" ? "Deploying" : "Deploy"}</span>
+            <span>
+              {runState.phase === "deploying"
+                ? "Deploying"
+                : runState.phase === "exporting" && activeBoardUsesIncalmo
+                  ? "Exporting"
+                  : activeBoardUsesIncalmo
+                    ? "Export Compose"
+                    : "Deploy"}
+            </span>
           </button>
           <button type="button" onClick={endDeployment} disabled={isBackendBusy}>
             <Square size={17} aria-hidden="true" />
@@ -1278,7 +1582,7 @@ function App() {
         <aside className="panel palette-panel" aria-label="Block palette">
           <h2>Blocks</h2>
           <div className="palette-list">
-            {BLOCK_TYPES.map((type) => (
+            {PALETTE_BLOCK_TYPES.map((type) => (
               <button
                 type="button"
                 className="palette-item"
@@ -1291,6 +1595,131 @@ function App() {
               </button>
             ))}
           </div>
+        </aside>
+
+        <aside className="panel incalmo-panel" aria-label="Incalmo runtime">
+          <div className="panel-title-row">
+            <h2>Incalmo</h2>
+            <span>runtime</span>
+          </div>
+          <div className="incalmo-actions">
+            <button type="button" onClick={loadIncalmoEquifaxBoard}>
+              <RefreshCcw size={17} aria-hidden="true" />
+              <span>Equifax</span>
+            </button>
+            <button type="button" onClick={exportIncalmoCompose} disabled={isBackendBusy}>
+              <FileDown size={17} aria-hidden="true" />
+              <span>{runState.phase === "exporting" ? "Exporting" : "Export Compose"}</span>
+            </button>
+          </div>
+          <form className="incalmo-key-form" onSubmit={(event) => event.preventDefault()}>
+            <label>
+              Project
+              <input
+                value={incalmoConfig.project || slugName(boardName)}
+                onChange={(event) => updateIncalmoConfig({ project: event.target.value })}
+              />
+            </label>
+            <label>
+              Strategy
+              <input
+                value={incalmoConfig.strategy}
+                onChange={(event) => updateIncalmoConfig({ strategy: event.target.value })}
+              />
+            </label>
+            <label>
+              Environment
+              <input
+                value={incalmoConfig.environment}
+                onChange={(event) => updateIncalmoConfig({ environment: event.target.value })}
+              />
+            </label>
+            <label>
+              C2 server
+              <input
+                value={incalmoConfig.c2Server}
+                onChange={(event) => updateIncalmoConfig({ c2Server: event.target.value })}
+              />
+            </label>
+          </form>
+          <div className="runtime-list" aria-label="Incalmo runtime blocks">
+            {runtimeBlocks.length > 0 ? (
+              runtimeBlocks.map((block) => (
+                <article
+                  key={block.id}
+                  className="runtime-block"
+                  style={{ "--runtime-color": block.color }}
+                >
+                  <div>
+                    <strong>{runtimeBlockName(block)}</strong>
+                    <span>{runtimeBlockMeta(block)}</span>
+                  </div>
+                  {block.control?.summary && <p>{block.control.summary}</p>}
+                </article>
+              ))
+            ) : (
+              <p className="properties-empty">No Incalmo runtime blocks on this board.</p>
+            )}
+          </div>
+          <form className="incalmo-key-form" onSubmit={submitIncalmoApiKey}>
+            <label>
+              LLM provider
+              <select
+                value={incalmoKeyProvider}
+                onChange={(event) => setIncalmoKeyProvider(event.target.value)}
+              >
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="google">Google Gemini</option>
+                <option value="deepseek">DeepSeek</option>
+                <option value="mistral">Mistral</option>
+              </select>
+            </label>
+            <label>
+              API key
+              <input
+                type="password"
+                autoComplete="off"
+                value={incalmoApiKey}
+                onChange={(event) => setIncalmoApiKey(event.target.value)}
+              />
+            </label>
+            <button type="submit" disabled={!incalmoApiKey.trim()}>
+              Save Key
+            </button>
+          </form>
+          <section className="incalmo-monitor" aria-label="Incalmo monitor">
+            <div className="run-status-header">
+              <strong>Monitor</strong>
+              <button type="button" onClick={() => refreshIncalmoMonitor()} disabled={isBackendBusy}>
+                <Activity size={16} aria-hidden="true" />
+                <span>Refresh</span>
+              </button>
+            </div>
+            <p>{incalmoMessage}</p>
+            {incalmoStatus && (
+              <div className="incalmo-monitor-details">
+                <div>
+                  <span>compose</span>
+                  <strong>{incalmoStatus.composeExists ? "ready" : "missing"}</strong>
+                </div>
+                <div>
+                  <span>c2</span>
+                  <strong>{incalmoStatus.c2?.reachable ? "reachable" : "offline"}</strong>
+                </div>
+                {incalmoStatus.services?.map((service) => (
+                  <div key={`${service.name}-${service.service}`}>
+                    <span>{service.service || service.name || "service"}</span>
+                    <strong>{service.state || service.status || "unknown"}</strong>
+                  </div>
+                ))}
+                {incalmoStatus.dockerError && <pre className="run-error">{incalmoStatus.dockerError}</pre>}
+                {incalmoStatus.latestLog?.tail && (
+                  <pre className="incalmo-log">{incalmoStatus.latestLog.tail}</pre>
+                )}
+              </div>
+            )}
+          </section>
         </aside>
 
         <section className="board-panel" aria-label="Canvas board">
@@ -1311,6 +1740,18 @@ function App() {
               aria-hidden="true"
             >
               <defs>
+                <marker
+                  id="arrow-topology"
+                  className="connection-marker connection-marker-topology"
+                  markerWidth="9"
+                  markerHeight="9"
+                  refX="8"
+                  refY="4.5"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <path d="M 0 0 L 9 4.5 L 0 9 z" />
+                </marker>
                 <marker
                   id="arrow-service"
                   className="connection-marker connection-marker-service"
@@ -1483,6 +1924,61 @@ function App() {
                   }
                 />
               </label>
+              <section className="interface-editor" aria-label="Network interfaces">
+                <div className="properties-section-header">
+                  <strong>Network interfaces</strong>
+                  <button type="button" onClick={addSelectedHostInterface} aria-label="Add network interface">
+                    <Plus size={15} aria-hidden="true" />
+                    <span>Add</span>
+                  </button>
+                </div>
+                {(selectedBlock.host.networkInterfaces || []).length > 0 ? (
+                  <div className="interface-list">
+                    {selectedBlock.host.networkInterfaces.map((networkInterface, index) => (
+                      <div className="interface-row" key={`${selectedBlock.id}-interface-${index}`}>
+                        <label>
+                          Network
+                          <input
+                            value={networkInterface.networkId || networkInterface.networkName || ""}
+                            onChange={(event) =>
+                              updateSelectedHostInterface(index, {
+                                networkId: event.target.value,
+                                networkName: event.target.value
+                              })
+                            }
+                          />
+                        </label>
+                        <label>
+                          CIDR
+                          <input
+                            value={networkInterface.cidr || ""}
+                            onChange={(event) => updateSelectedHostInterface(index, { cidr: event.target.value })}
+                          />
+                        </label>
+                        <label>
+                          IP
+                          <input
+                            value={networkInterface.ipAddress || ""}
+                            onChange={(event) =>
+                              updateSelectedHostInterface(index, { ipAddress: event.target.value })
+                            }
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className="icon-button"
+                          onClick={() => removeSelectedHostInterface(index)}
+                          aria-label={`Remove network interface ${index + 1}`}
+                        >
+                          <Trash2 size={15} aria-hidden="true" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="properties-empty">No explicit interfaces.</p>
+                )}
+              </section>
               <div className="hotkeys-panel" aria-label="Available hotkeys">
                 <strong>Hotkeys</strong>
                 <span>Delete: delete host</span>
@@ -1558,7 +2054,7 @@ function App() {
                 />
               </label>
               <label>
-                MHBench VM type
+                Environment VM type
                 <input
                   value={selectedBlock.service.mhbenchVmType}
                   onChange={(event) => updateSelectedBlockService({ mhbenchVmType: event.target.value })}
@@ -1632,7 +2128,7 @@ function App() {
                 />
               </label>
               <label>
-                MHBench playbooks
+                Setup playbooks
                 <textarea
                   rows={4}
                   value={selectedBlock.vulnerability.playbooks.map((playbook) => playbook.name).join("\n")}
@@ -1672,6 +2168,16 @@ function App() {
           <option value="topology">topology</option>
         </select>
       </label>
+              {normalizeConnectionKind(selectedConnection.kind) === "topology" && (
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(selectedConnection.directed)}
+                    onChange={(event) => updateSelectedConnection({ directed: event.target.checked })}
+                  />
+                  Directional arrow
+                </label>
+              )}
               <label>
                 Connector name
                 <input
@@ -1759,6 +2265,10 @@ function App() {
                   <dt>Connectors</dt>
                   <dd>{runState.result.intermediate?.connections?.length || 0}</dd>
                 </div>
+                <div>
+                  <dt>Runtime</dt>
+                  <dd>{runState.result.intermediate?.controlBlocks?.length || 0}</dd>
+                </div>
               </dl>
             )}
             {runState.deployment?.checks?.length > 0 && (
@@ -1842,6 +2352,8 @@ function createThreeHostCanvas() {
 
   return {
     name: DEFAULT_BOARD_NAME,
+    incalmo: {},
+    runtimeBlocks: [],
     blocks: [
       ...hosts.map((host, index) => ({
         id: host.id,
@@ -2019,6 +2531,217 @@ function createThreeHostCanvas() {
   };
 }
 
+function createIncalmoEquifaxCanvas() {
+  return {
+    name: "incalmo-equifax",
+    incalmo: {
+      project: "incalmo-equifax",
+      strategy: "EquifaxStrategy",
+      environment: "EquifaxLarge",
+      c2Server: "http://localhost:8888",
+      debug: true
+    },
+    runtimeBlocks: [
+      {
+        id: "incalmo-c2",
+        kind: "control",
+        type: "incalmo-c2",
+        label: "c2.server",
+        color: "#dbeafe",
+        control: {
+          name: "Incalmo C2",
+          role: "c2-server",
+          product: "Incalmo command and control",
+          protocol: "http",
+          ports: ["8888", "6379", "5678"],
+          hostId: "attacker",
+          summary: "C2, Redis/Celery, and debug endpoints published by the attacker container."
+        }
+      },
+      {
+        id: "sandcat-agent",
+        kind: "control",
+        type: "sandcat-agent",
+        label: "sandcat.agent",
+        color: "#cffafe",
+        control: {
+          name: "Sandcat initial agent",
+          role: "agent",
+          product: "Sandcat",
+          protocol: "http",
+          ports: [],
+          hostId: "attacker",
+          summary: "Initial red agent that Incalmo starts from the attacker side in docker mode."
+        }
+      }
+    ],
+    blocks: [
+      {
+        id: "attacker",
+        kind: "host",
+        type: "host-medium",
+        label: "attacker",
+        color: BLOCK_TYPE_MAP["host-medium"].color,
+        host: {
+          hostname: "attacker",
+          osImagePath: "incalmo://attacker",
+          ramGb: 4,
+          storageGb: 32,
+          vmType: "kali_attacker",
+          flavor: "m1.medium",
+          externalDrives: [],
+          networkInterfaces: [
+            { networkId: "attacker_network", networkName: "attacker_network", cidr: "192.168.199.0/24", ipAddress: "192.168.199.10" },
+            { networkId: "web_network", networkName: "web_network", cidr: "192.168.200.0/24", ipAddress: "192.168.200.10" }
+          ],
+          incalmo: {
+            role: "attacker",
+            buildContext: ".",
+            dockerfile: "docker/attacker/incalmo.Dockerfile"
+          }
+        },
+        x: 60,
+        y: 90,
+        order: 0
+      },
+      {
+        id: "webserver",
+        kind: "host",
+        type: "host-medium",
+        label: "webserver",
+        color: BLOCK_TYPE_MAP["host-medium"].color,
+        host: {
+          hostname: "webserver",
+          osImagePath: "incalmo://equifax/webserver",
+          ramGb: 4,
+          storageGb: 32,
+          vmType: "webserver_running",
+          flavor: "m1.medium",
+          externalDrives: [],
+          networkInterfaces: [
+            { networkId: "web_network", networkName: "web_network", cidr: "192.168.200.0/24", ipAddress: "192.168.200.20" },
+            { networkId: "db_network", networkName: "db_network", cidr: "192.168.201.0/24", ipAddress: "192.168.201.20" }
+          ],
+          incalmo: {
+            role: "webserver",
+            buildContext: "docker/equifax/webserver",
+            containerName: "webserver_container",
+            publishedPorts: ["127.0.0.1:8080:8080"]
+          }
+        },
+        x: 230,
+        y: 170,
+        order: 1
+      },
+      {
+        id: "db",
+        kind: "host",
+        type: "host-storage",
+        label: "db",
+        color: BLOCK_TYPE_MAP["host-storage"].color,
+        host: {
+          hostname: "db",
+          osImagePath: "incalmo://equifax/database",
+          ramGb: 2,
+          storageGb: 32,
+          vmType: "ubuntu_base_running",
+          flavor: "m1.small",
+          externalDrives: [],
+          networkInterfaces: [
+            { networkId: "db_network", networkName: "db_network", cidr: "192.168.201.0/24", ipAddress: "192.168.201.100" }
+          ],
+          incalmo: {
+            role: "database",
+            buildContext: "docker/equifax/database",
+            containerName: "db_container"
+          }
+        },
+        x: 60,
+        y: 390,
+        order: 2
+      },
+      {
+        id: "service-struts",
+        kind: "service",
+        type: "service-struts",
+        label: "apache.struts",
+        color: BLOCK_TYPE_MAP["service-struts"].color,
+        service: createServiceDefaults("service-struts", 1),
+        x: 230,
+        y: 300,
+        order: 3
+      },
+      {
+        id: "vuln-struts-cve",
+        kind: "vulnerability",
+        type: "vuln-struts-cve",
+        label: "CVE-2017-5638",
+        color: BLOCK_TYPE_MAP["vuln-struts-cve"].color,
+        vulnerability: createVulnerabilityDefaults("vuln-struts-cve", 1),
+        x: 420,
+        y: 300,
+        order: 4
+      },
+      {
+        id: "service-ssh",
+        kind: "service",
+        type: "service-openssh",
+        label: "openssh",
+        color: BLOCK_TYPE_MAP["service-openssh"].color,
+        service: createServiceDefaults("service-openssh", 2),
+        x: 230,
+        y: 430,
+        order: 5
+      },
+      {
+        id: "misconfig-web-db-ssh",
+        kind: "misconfiguration",
+        type: "misconfig-root-ssh-trust",
+        label: "web.db.ssh.key",
+        color: BLOCK_TYPE_MAP["misconfig-root-ssh-trust"].color,
+        vulnerability: {
+          id: "MISCONFIG-WEB-DB-SSH-KEY",
+          name: "Webserver SSH key trusted by database",
+          category: "credential-trust",
+          severity: "high",
+          summary: "The webserver contains an SSH key and config that can authenticate to the database host.",
+          source: "Incalmo Equifax webserver/database Dockerfiles",
+          sourceHostId: "",
+          playbooks: []
+        },
+        x: 420,
+        y: 430,
+        order: 6
+      }
+    ],
+    connections: [
+      {
+        id: "attacker-to-webserver-network",
+        kind: "topology",
+        label: "web_network",
+        from: "attacker",
+        to: "webserver",
+        directed: true,
+        port: ""
+      },
+      {
+        id: "webserver-to-db-network",
+        kind: "topology",
+        label: "db_network",
+        from: "webserver",
+        to: "db",
+        directed: true,
+        port: ""
+      },
+      { id: "webserver-to-service-struts", kind: "service", label: "http", from: "webserver", to: "service-struts", port: "8080" },
+      { id: "service-struts-to-vuln-struts-cve", kind: "vulnerability", label: "exposes", from: "service-struts", to: "vuln-struts-cve", port: "" },
+      { id: "db-to-service-ssh", kind: "service", label: "ssh", from: "db", to: "service-ssh", port: "22" },
+      { id: "service-ssh-to-misconfig-web-db-ssh", kind: "vulnerability", label: "trusts", from: "service-ssh", to: "misconfig-web-db-ssh", port: "" },
+      { id: "webserver-to-misconfig-web-db-ssh", kind: "access", label: "ssh key", from: "webserver", to: "misconfig-web-db-ssh", port: "" }
+    ]
+  };
+}
+
 function numberOrDefault(value, fallback) {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : fallback;
@@ -2085,6 +2808,26 @@ function blockMeta(block) {
   return `${block.host.ramGb}GB RAM / ${block.host.storageGb}GB disk`;
 }
 
+function blockUsesIncalmo(block) {
+  return Boolean(
+    block?.host?.incalmo?.buildContext ||
+      (typeof block?.host?.osImagePath === "string" && block.host.osImagePath.startsWith("incalmo://"))
+  );
+}
+
+function runtimeBlockName(block) {
+  return block?.control?.name || block?.label || block?.id || "runtime";
+}
+
+function runtimeBlockMeta(block) {
+  const parts = [
+    block?.control?.role || block?.type || "runtime",
+    block?.control?.hostId ? `host:${block.control.hostId}` : "",
+    block?.control?.ports?.length ? `ports:${block.control.ports.join(",")}` : ""
+  ].filter(Boolean);
+  return parts.join(" / ");
+}
+
 function blockName(blocks, blockId) {
   const block = blocks.find((item) => item.id === blockId);
   return nodeName(block) || "missing";
@@ -2112,7 +2855,7 @@ function normalizeConnectionKind(kind) {
 }
 
 function isDirectedConnection(connection) {
-  return ["service", "vulnerability", "access"].includes(normalizeConnectionKind(connection.kind));
+  return Boolean(connection?.directed) || ["service", "vulnerability", "access"].includes(normalizeConnectionKind(connection.kind));
 }
 
 function defaultConnectionLabel(kind, index, service) {

@@ -1,5 +1,7 @@
 # Vulnerable Hosts Example
 
+This is now a legacy/reference note. The active POC sample is `backend/examples/incalmo-equifax.ide.json`, which reproduces the smaller Incalmo Equifax Docker environment from the local `../Incalmo` checkout.
+
 This branch turns the routed three-host canvas into a vulnerability modeling example.
 Hosts and routers still define network topology. CVEs, services, and non-CVE misconfigurations are separate draggable blocks.
 
@@ -9,7 +11,7 @@ Hosts and routers still define network topology. CVEs, services, and non-CVE mis
   - Adds service blocks for Struts, vsftpd, OpenSSH, Netcat, and sudo.
   - Adds vulnerability blocks for CVEs and misconfiguration blocks for non-CVE security conditions.
   - Adds directed service, vulnerability, and access connectors.
-  - Changes the default sample to `vulnerable-hosts`.
+  - Originally changed the default sample to `vulnerable-hosts`; the current default is `incalmo-equifax`.
 - `frontend/src/styles.css`
   - Gives topology links a network-only visual style.
   - Gives directed service, vulnerability, misconfiguration, and access links distinct styling and arrowheads.

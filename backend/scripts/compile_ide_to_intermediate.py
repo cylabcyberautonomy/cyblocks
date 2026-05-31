@@ -79,6 +79,136 @@ def parse_optional_port(value: Any, *, context: str) -> int | None:
     return port
 
 
+def normalize_network_interfaces(value: Any, *, hostname: str) -> list[dict[str, str]]:
+    if value is None or value == "":
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"Host {hostname}: networkInterfaces must be a list.")
+
+    interfaces = []
+    for index, interface in enumerate(value):
+        if not isinstance(interface, dict):
+            raise ValueError(f"Host {hostname}: networkInterfaces[{index}] must be an object.")
+        network_label = str(
+            interface.get("networkName")
+            or interface.get("network")
+            or interface.get("networkId")
+            or ""
+        ).strip()
+        network_id = slug(str(interface.get("networkId") or network_label))
+        cidr = str(interface.get("cidr") or interface.get("subnet") or "").strip()
+        ip_address = str(interface.get("ipAddress") or interface.get("ip") or "").strip()
+        if not network_id:
+            raise ValueError(f"Host {hostname}: networkInterfaces[{index}] is missing networkId.")
+        if not cidr:
+            raise ValueError(f"Host {hostname}: networkInterfaces[{index}] is missing cidr.")
+        if not ip_address:
+            raise ValueError(f"Host {hostname}: networkInterfaces[{index}] is missing ipAddress.")
+        interfaces.append(
+            {
+                "networkId": network_id,
+                "network": network_label or network_id,
+                "cidr": cidr,
+                "ipAddress": ip_address,
+            }
+        )
+    return interfaces
+
+
+def normalize_incalmo_config(host: dict[str, Any]) -> dict[str, Any]:
+    source = host.get("incalmo") if isinstance(host.get("incalmo"), dict) else {}
+    role = str(source.get("role") or host.get("incalmoRole") or host.get("role") or "").strip()
+    container_name = str(source.get("containerName") or host.get("containerName") or "").strip()
+    build_context = str(source.get("buildContext") or host.get("buildContext") or "").strip()
+    dockerfile = str(source.get("dockerfile") or host.get("dockerfile") or "").strip()
+    publish_service_ports = source.get("publishServicePorts", host.get("publishServicePorts", False))
+    published_ports = source.get("publishedPorts", host.get("publishedPorts", []))
+    if published_ports is None or published_ports == "":
+        published_ports = []
+    if not isinstance(published_ports, list):
+        raise ValueError("Host incalmo.publishedPorts must be a list.")
+
+    result: dict[str, Any] = {}
+    if role:
+        result["role"] = role
+    if container_name:
+        result["containerName"] = container_name
+    if build_context:
+        result["buildContext"] = build_context
+    if dockerfile:
+        result["dockerfile"] = dockerfile
+    if isinstance(publish_service_ports, bool):
+        result["publishServicePorts"] = publish_service_ports
+    if published_ports:
+        result["publishedPorts"] = [str(port) for port in published_ports]
+    return result
+
+
+def normalize_incalmo_environment_config(value: Any) -> dict[str, Any]:
+    if value is None or value == "":
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("IDE graph incalmo metadata must be an object.")
+
+    result: dict[str, Any] = {}
+    for source_key, target_key in (
+        ("project", "project"),
+        ("strategy", "strategy"),
+        ("environment", "environment"),
+        ("c2Server", "c2Server"),
+    ):
+        text = str(value.get(source_key) or "").strip()
+        if text:
+            result[target_key] = text
+
+    if isinstance(value.get("debug"), bool):
+        result["debug"] = value["debug"]
+
+    return result
+
+
+def normalize_control_blocks(value: Any) -> list[dict[str, Any]]:
+    if value is None or value == "":
+        return []
+    if not isinstance(value, list):
+        raise ValueError("IDE graph runtimeBlocks must be an array.")
+
+    controls = []
+    known_ids = set()
+    for index, block in enumerate(value):
+        if not isinstance(block, dict):
+            raise ValueError(f"Runtime block {index}: expected object.")
+        control = block.get("control") if isinstance(block.get("control"), dict) else {}
+        block_id = slug(str(block.get("id") or control.get("id") or f"runtime-{index + 1}"))
+        if block_id in known_ids:
+            raise ValueError(f"Duplicate runtime block id {block_id!r}.")
+        known_ids.add(block_id)
+
+        ports = control.get("ports", [])
+        if ports is None or ports == "":
+            ports = []
+        if not isinstance(ports, list):
+            raise ValueError(f"Runtime block {block_id}: control.ports must be a list.")
+
+        controls.append(
+            {
+                "id": block_id,
+                "kind": str(block.get("kind") or "control"),
+                "type": str(block.get("type") or control.get("type") or "runtime"),
+                "label": str(block.get("label") or control.get("name") or block_id),
+                "name": str(control.get("name") or block.get("label") or block_id),
+                "role": str(control.get("role") or ""),
+                "product": str(control.get("product") or ""),
+                "protocol": str(control.get("protocol") or ""),
+                "ports": [str(port) for port in ports],
+                "hostId": str(control.get("hostId") or control.get("runtimeHostId") or ""),
+                "summary": str(control.get("summary") or ""),
+                "position": block_position(block),
+            }
+        )
+    return controls
+
+
 def normalize_playbooks(playbooks: Any) -> list[dict[str, Any]]:
     if playbooks is None or playbooks == "":
         return []
@@ -114,10 +244,12 @@ def compile_ide_graph(source: dict[str, Any], *, name: str | None = None) -> dic
 
     env_name = slug(name or source.get("name") or "cyblocks-three-host-http")
     playbooks = normalize_playbooks(source.get("playbooks", []))
+    incalmo = normalize_incalmo_environment_config(source.get("incalmo", {}))
     hosts = []
     routers = []
     services = []
     vulnerabilities = []
+    control_blocks = normalize_control_blocks(source.get("runtimeBlocks", []))
     host_by_id: dict[str, dict[str, Any]] = {}
     router_by_id: dict[str, dict[str, Any]] = {}
     service_by_id: dict[str, dict[str, Any]] = {}
@@ -236,6 +368,11 @@ def compile_ide_graph(source: dict[str, Any], *, name: str | None = None) -> dic
             "vmType": str(host.get("vmType") or ""),
             "flavor": str(host.get("flavor") or ""),
             "externalDrives": external_drives,
+            "networkInterfaces": normalize_network_interfaces(
+                host.get("networkInterfaces") or host.get("interfaces"),
+                hostname=hostname,
+            ),
+            "incalmo": normalize_incalmo_config(host),
             "subnetIds": [],
             "ipAddresses": {},
             "position": block_position(block),
@@ -297,7 +434,7 @@ def compile_ide_graph(source: dict[str, Any], *, name: str | None = None) -> dic
                 "to": node_kinds[to_id],
             },
             "protocol": "tcp",
-            "directed": connection_kind in {"service", "vulnerability", "access"},
+            "directed": bool(connection.get("directed")) or connection_kind in {"service", "vulnerability", "access"},
         }
         if connection_kind == "service":
             service_endpoint = from_id if node_kinds[from_id] == "service" else to_id if node_kinds[to_id] == "service" else None
@@ -372,13 +509,15 @@ def compile_ide_graph(source: dict[str, Any], *, name: str | None = None) -> dic
         "sourceKind": source.get("kind", "block-board"),
         "deployment": {
             "target": "docker",
-            "project": env_name,
+            "project": incalmo.get("project") or env_name,
         },
+        "incalmo": incalmo,
         "networks": networks,
         "hosts": hosts,
         "routers": routers,
         "services": services,
         "vulnerabilities": vulnerabilities,
+        "controlBlocks": control_blocks,
         "serviceFindings": service_findings,
         "connections": compiled_connections,
         "subnetConnections": subnet_connections,
@@ -527,6 +666,9 @@ def build_subnets(
     topology_edges: list[dict[str, Any]],
     node_kinds: dict[str, str],
 ) -> list[dict[str, Any]]:
+    if any(host.get("networkInterfaces") for host in hosts):
+        return build_explicit_host_subnets(hosts)
+
     if not routers:
         return [
             {
@@ -570,6 +712,41 @@ def build_subnets(
     return networks
 
 
+def build_explicit_host_subnets(hosts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    networks_by_id: dict[str, dict[str, Any]] = {}
+    for host in hosts:
+        interfaces = host.get("networkInterfaces") or []
+        if not interfaces:
+            raise ValueError(
+                f"Host {host['hostname']}: every host needs networkInterfaces when any host uses explicit interfaces."
+            )
+        for interface in interfaces:
+            network_id = interface["networkId"]
+            network = networks_by_id.setdefault(
+                network_id,
+                {
+                    "id": network_id,
+                    "name": interface["network"],
+                    "driver": "bridge",
+                    "cidr": interface["cidr"],
+                    "members": [],
+                    "source": "host.networkInterfaces",
+                },
+            )
+            if network["cidr"] != interface["cidr"]:
+                raise ValueError(
+                    f"Network {network_id}: conflicting CIDRs {network['cidr']} and {interface['cidr']}."
+                )
+            network["members"].append(
+                {
+                    "id": host["id"],
+                    "kind": "host",
+                    "ipAddress": interface["ipAddress"],
+                }
+            )
+    return [networks_by_id[key] for key in sorted(networks_by_id)]
+
+
 def assign_addresses(
     networks: list[dict[str, Any]],
     host_by_id: dict[str, dict[str, Any]],
@@ -580,7 +757,7 @@ def assign_addresses(
         role_counts = {"router": 0, "host": 0}
         for member in network["members"]:
             role = node_kinds[member["id"]]
-            ip_address = subnet_ip(subnet_index, role_counts[role], role=role)
+            ip_address = member.get("ipAddress") or subnet_ip(subnet_index, role_counts[role], role=role)
             role_counts[role] += 1
             member["ipAddress"] = ip_address
             if role == "router":

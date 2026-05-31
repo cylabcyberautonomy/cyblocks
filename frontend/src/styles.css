@@ -160,7 +160,7 @@ h2 {
 
 .workspace {
   display: grid;
-  grid-template-columns: 190px minmax(0, 1fr) 280px;
+  grid-template-columns: 190px 260px minmax(0, 1fr) 300px;
   gap: 10px;
   min-height: 0;
   padding: 10px;
@@ -183,6 +183,149 @@ h2 {
 .palette-list {
   display: grid;
   gap: 6px;
+}
+
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.panel-title-row span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.incalmo-panel {
+  overflow: auto;
+}
+
+.incalmo-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.incalmo-actions button,
+.incalmo-key-form button,
+.incalmo-monitor button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink);
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.incalmo-actions button:hover,
+.incalmo-key-form button:hover,
+.incalmo-monitor button:hover {
+  border-color: var(--code);
+  background: #eef2f7;
+}
+
+.incalmo-actions button:disabled,
+.incalmo-key-form button:disabled,
+.incalmo-monitor button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.runtime-list,
+.incalmo-key-form,
+.incalmo-monitor,
+.incalmo-monitor-details {
+  display: grid;
+  gap: 8px;
+}
+
+.runtime-block {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--runtime-color), var(--line) 50%);
+  border-radius: 4px;
+  background: var(--runtime-color);
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.runtime-block div {
+  display: grid;
+  gap: 3px;
+}
+
+.runtime-block span,
+.runtime-block p,
+.incalmo-monitor p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.incalmo-key-form label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.incalmo-monitor {
+  margin-top: 2px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: #ffffff;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.incalmo-monitor .run-status-header {
+  align-items: center;
+}
+
+.incalmo-monitor .run-status-header button {
+  min-height: 28px;
+  padding: 0 8px;
+}
+
+.incalmo-monitor-details > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 5px 6px;
+  background: #f8fafc;
+}
+
+.incalmo-monitor-details span {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.incalmo-monitor-details strong {
+  text-align: right;
+}
+
+.incalmo-log {
+  max-height: 220px;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 6px;
+  color: var(--code);
+  background: #f8fafc;
+  white-space: pre-wrap;
 }
 
 .palette-item {
@@ -320,6 +463,10 @@ h2 {
 
 .connection-marker path {
   fill: var(--code);
+}
+
+.connection-marker-topology path {
+  fill: #4b5563;
 }
 
 .connection-marker-vulnerability path {
@@ -495,6 +642,78 @@ h2 {
   font-size: 0.68rem;
   font-weight: 700;
   text-transform: uppercase;
+}
+
+.properties-form .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.properties-form .checkbox-label input {
+  width: auto;
+  min-height: auto;
+}
+
+.interface-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.properties-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.properties-section-header button,
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink);
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.properties-section-header button {
+  padding: 0 8px;
+}
+
+.icon-button {
+  align-self: end;
+  width: 30px;
+  padding: 0;
+}
+
+.properties-section-header button:hover,
+.icon-button:hover {
+  border-color: var(--code);
+  background: #eef2f7;
+}
+
+.interface-list {
+  display: grid;
+  gap: 8px;
+}
+
+.interface-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1.1fr) auto;
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: #f8fafc;
 }
 
 .properties-kicker,

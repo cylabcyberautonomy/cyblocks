@@ -1,0 +1,300 @@
+{
+  "kind": "block-board",
+  "version": 1,
+  "name": "incalmo-equifax",
+  "incalmo": {
+    "project": "incalmo-equifax",
+    "strategy": "EquifaxStrategy",
+    "environment": "EquifaxLarge",
+    "c2Server": "http://localhost:8888",
+    "debug": true
+  },
+  "runtimeBlocks": [
+    {
+      "id": "incalmo-c2",
+      "kind": "control",
+      "type": "incalmo-c2",
+      "label": "c2.server",
+      "color": "#dbeafe",
+      "control": {
+        "name": "Incalmo C2",
+        "role": "c2-server",
+        "product": "Incalmo command and control",
+        "protocol": "http",
+        "ports": ["8888", "6379", "5678"],
+        "hostId": "attacker",
+        "summary": "C2, Redis/Celery, and debug endpoints published by the attacker container."
+      }
+    },
+    {
+      "id": "sandcat-agent",
+      "kind": "control",
+      "type": "sandcat-agent",
+      "label": "sandcat.agent",
+      "color": "#cffafe",
+      "control": {
+        "name": "Sandcat initial agent",
+        "role": "agent",
+        "product": "Sandcat",
+        "protocol": "http",
+        "ports": [],
+        "hostId": "attacker",
+        "summary": "Initial red agent that Incalmo starts from the attacker side in docker mode."
+      }
+    }
+  ],
+  "blocks": [
+    {
+      "id": "attacker",
+      "kind": "host",
+      "type": "host-medium",
+      "label": "attacker",
+      "color": "#ff8a7a",
+      "host": {
+        "hostname": "attacker",
+        "osImagePath": "incalmo://attacker",
+        "ramGb": 4,
+        "storageGb": 32,
+        "vmType": "kali_attacker",
+        "flavor": "m1.medium",
+        "externalDrives": [],
+        "networkInterfaces": [
+          {
+            "networkId": "attacker_network",
+            "networkName": "attacker_network",
+            "cidr": "192.168.199.0/24",
+            "ipAddress": "192.168.199.10"
+          },
+          {
+            "networkId": "web_network",
+            "networkName": "web_network",
+            "cidr": "192.168.200.0/24",
+            "ipAddress": "192.168.200.10"
+          }
+        ],
+        "incalmo": {
+          "role": "attacker",
+          "buildContext": ".",
+          "dockerfile": "docker/attacker/incalmo.Dockerfile"
+        }
+      },
+      "position": {
+        "x": 60,
+        "y": 90
+      }
+    },
+    {
+      "id": "webserver",
+      "kind": "host",
+      "type": "host-medium",
+      "label": "webserver",
+      "color": "#ffd166",
+      "host": {
+        "hostname": "webserver",
+        "osImagePath": "incalmo://equifax/webserver",
+        "ramGb": 4,
+        "storageGb": 32,
+        "vmType": "webserver_running",
+        "flavor": "m1.medium",
+        "externalDrives": [],
+        "networkInterfaces": [
+          {
+            "networkId": "web_network",
+            "networkName": "web_network",
+            "cidr": "192.168.200.0/24",
+            "ipAddress": "192.168.200.20"
+          },
+          {
+            "networkId": "db_network",
+            "networkName": "db_network",
+            "cidr": "192.168.201.0/24",
+            "ipAddress": "192.168.201.20"
+          }
+        ],
+        "incalmo": {
+          "role": "webserver",
+          "buildContext": "docker/equifax/webserver",
+          "containerName": "webserver_container",
+          "publishedPorts": [
+            "127.0.0.1:8080:8080"
+          ]
+        }
+      },
+      "position": {
+        "x": 230,
+        "y": 170
+      }
+    },
+    {
+      "id": "db",
+      "kind": "host",
+      "type": "host-storage",
+      "label": "db",
+      "color": "#74d3ae",
+      "host": {
+        "hostname": "db",
+        "osImagePath": "incalmo://equifax/database",
+        "ramGb": 2,
+        "storageGb": 32,
+        "vmType": "ubuntu_base_running",
+        "flavor": "m1.small",
+        "externalDrives": [],
+        "networkInterfaces": [
+          {
+            "networkId": "db_network",
+            "networkName": "db_network",
+            "cidr": "192.168.201.0/24",
+            "ipAddress": "192.168.201.100"
+          }
+        ],
+        "incalmo": {
+          "role": "database",
+          "buildContext": "docker/equifax/database",
+          "containerName": "db_container"
+        }
+      },
+      "position": {
+        "x": 60,
+        "y": 390
+      }
+    },
+    {
+      "id": "service-struts",
+      "kind": "service",
+      "type": "service-struts",
+      "label": "apache.struts",
+      "color": "#a9d6ff",
+      "service": {
+        "name": "struts-http",
+        "product": "Apache Struts",
+        "version": "2.3.31",
+        "protocol": "http",
+        "port": "8080",
+        "mhbenchVmType": "webserver_running"
+      },
+      "position": {
+        "x": 230,
+        "y": 300
+      }
+    },
+    {
+      "id": "vuln-struts-cve",
+      "kind": "vulnerability",
+      "type": "vuln-struts-cve",
+      "label": "CVE-2017-5638",
+      "color": "#ffb1a8",
+      "vulnerability": {
+        "id": "CVE-2017-5638",
+        "name": "Struts Jakarta multipart RCE",
+        "category": "cve",
+        "severity": "critical",
+        "summary": "Incalmo's Equifax webserver exposes the vulnerable Struts/Tomcat service on TCP 8080.",
+        "source": "Incalmo docker/equifax/webserver",
+        "playbooks": []
+      },
+      "position": {
+        "x": 420,
+        "y": 300
+      }
+    },
+    {
+      "id": "service-ssh",
+      "kind": "service",
+      "type": "service-openssh",
+      "label": "openssh",
+      "color": "#f7c873",
+      "service": {
+        "name": "ssh-service",
+        "product": "OpenSSH",
+        "version": "8.x",
+        "protocol": "ssh",
+        "port": "22",
+        "mhbenchVmType": "ubuntu_base_running"
+      },
+      "position": {
+        "x": 230,
+        "y": 430
+      }
+    },
+    {
+      "id": "misconfig-web-db-ssh",
+      "kind": "misconfiguration",
+      "type": "misconfig-root-ssh-trust",
+      "label": "web.db.ssh.key",
+      "color": "#ffe082",
+      "vulnerability": {
+        "id": "MISCONFIG-WEB-DB-SSH-KEY",
+        "name": "Webserver SSH key trusted by database",
+        "category": "credential-trust",
+        "severity": "high",
+        "summary": "The webserver contains an SSH key and config that can authenticate to the database host.",
+        "source": "Incalmo docker/equifax webserver/database Dockerfiles",
+        "playbooks": []
+      },
+      "position": {
+        "x": 420,
+        "y": 430
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "attacker-to-webserver-network",
+      "kind": "topology",
+      "label": "web_network",
+      "from": "attacker",
+      "to": "webserver",
+      "directed": true,
+      "port": ""
+    },
+    {
+      "id": "webserver-to-db-network",
+      "kind": "topology",
+      "label": "db_network",
+      "from": "webserver",
+      "to": "db",
+      "directed": true,
+      "port": ""
+    },
+    {
+      "id": "webserver-to-service-struts",
+      "kind": "service",
+      "label": "http",
+      "from": "webserver",
+      "to": "service-struts",
+      "port": "8080"
+    },
+    {
+      "id": "service-struts-to-vuln-struts-cve",
+      "kind": "vulnerability",
+      "label": "exposes",
+      "from": "service-struts",
+      "to": "vuln-struts-cve",
+      "port": ""
+    },
+    {
+      "id": "db-to-service-ssh",
+      "kind": "service",
+      "label": "ssh",
+      "from": "db",
+      "to": "service-ssh",
+      "port": "22"
+    },
+    {
+      "id": "service-ssh-to-misconfig-web-db-ssh",
+      "kind": "vulnerability",
+      "label": "trusts",
+      "from": "service-ssh",
+      "to": "misconfig-web-db-ssh",
+      "port": ""
+    },
+    {
+      "id": "webserver-to-misconfig-web-db-ssh",
+      "kind": "access",
+      "label": "ssh key",
+      "from": "webserver",
+      "to": "misconfig-web-db-ssh",
+      "port": ""
+    }
+  ]
+}

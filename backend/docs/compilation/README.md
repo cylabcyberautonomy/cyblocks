@@ -6,7 +6,7 @@ Compilation converts an IDE canvas graph into the Cyblocks intermediate DSL.
 
 - CLI: `backend/scripts/compile_ide_to_intermediate.py`
 - API: `POST /api/compile` in `backend/scripts/api_server.py`
-- Example input: `backend/examples/vulnerable-hosts.ide.json`
+- Example input: `backend/examples/incalmo-equifax.ide.json`
 
 ## Input Shape
 
@@ -14,7 +14,7 @@ The compiler expects a graph with:
 
 - `blocks[]`: hosts, routers, services, and vulnerabilities.
 - `connections[]`: topology, service, vulnerability, misconfiguration, and access links.
-- optional `playbooks[]`: extra MHBench-style playbooks to preserve.
+- optional `playbooks[]`: setup/action hooks to preserve for targets that use them.
 
 ## Compilation Steps
 
@@ -24,7 +24,7 @@ The compiler expects a graph with:
 4. Use topology links to build subnets, router interfaces, and routes.
 5. Use service-to-finding links to build `serviceFindings[]`.
 6. Use access links to resolve one-way multi-host playbook variables such as `$sourceHost`.
-7. Emit an MHBench projection with `networks`, `subnet_connections`, and `playbooks`.
+7. Emit target projections, including the current MHBench compatibility projection and Incalmo metadata used by the Compose exporter.
 
 ## Verification
 
@@ -32,6 +32,6 @@ The compiler expects a graph with:
 python3 -m py_compile backend/scripts/compile_ide_to_intermediate.py
 
 python3 backend/scripts/compile_ide_to_intermediate.py \
-  backend/examples/vulnerable-hosts.ide.json \
-  --out /tmp/vulnerable-hosts.intermediate.json
+  backend/examples/incalmo-equifax.ide.json \
+  --out /tmp/incalmo-equifax.intermediate.json
 ```

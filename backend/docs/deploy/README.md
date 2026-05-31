@@ -1,7 +1,7 @@
 # Backend Deploy
 
 Deployment turns an intermediate DSL into local Docker containers and networks.
-This is a prototype deployment target for validating canvas semantics before handing the same model to MHBench/OpenStack generation.
+This is a prototype deployment target for validating canvas semantics. The active environment POC is the Incalmo Compose exporter, which reproduces the smaller Equifax Docker environment from `../Incalmo/docker/equifax`.
 
 ## Entry Points
 
@@ -23,24 +23,25 @@ Docker deploy currently consumes:
 - `routes[]`
 - `serviceChecks[]`
 
-Service, CVE, and misconfiguration blocks are preserved in the DSL and MHBench projection, but local Docker does not yet install the corresponding vulnerable software or apply the corresponding weak configurations. That work belongs in the MHBench/OpenStack target path.
+Service, CVE, and misconfiguration blocks are preserved in the DSL, but local Docker deploy does not install vulnerable software or apply weak configurations. For the Equifax POC, use `POST /api/export/incalmo` or `backend/scripts/export_incalmo_compose.py` so the generated Compose file reuses Incalmo's Dockerfiles.
+In the frontend, Incalmo boards relabel the topbar deploy action to `Export Compose` to avoid sending `incalmo://` hosts to the local Docker deploy target.
 
 ## Local Run
 
 ```bash
 python3 backend/scripts/compile_ide_to_intermediate.py \
-  backend/examples/vulnerable-hosts.ide.json \
-  --out backend/generated/vulnerable-hosts.intermediate.json
+  backend/examples/three-host-http.ide.json \
+  --out backend/generated/three-host-http.intermediate.json
 
 python3 backend/scripts/deploy_docker.py \
-  backend/generated/vulnerable-hosts.intermediate.json \
+  backend/generated/three-host-http.intermediate.json \
   --replace
 
 python3 backend/scripts/status_docker.py \
-  backend/generated/vulnerable-hosts.intermediate.json
+  backend/generated/three-host-http.intermediate.json
 
 python3 backend/scripts/teardown_docker.py \
-  backend/generated/vulnerable-hosts.intermediate.json
+  backend/generated/three-host-http.intermediate.json
 
 python3 backend/scripts/teardown_docker.py --all
 ```
