@@ -76,7 +76,7 @@ In the Cyblocks page:
 
 1. Click `Equifax Sample`.
 2. In the `Incalmo` panel, check `Strategy`.
-3. The default is `claude-4.5-haiku`, which uses an Anthropic key.
+3. The default is `claude-4.5-sonnet`, which uses an Anthropic key. This model is registered in upstream Incalmo `main`.
 4. If you want to use an OpenAI key instead, change `Strategy` to `gpt-4o` or `gpt-4o-mini`.
 5. Pick the matching `LLM provider`.
 6. Paste the API key.
@@ -230,6 +230,6 @@ ls -td output/* | head
 tail -n 80 output/PASTE_NEWEST_FOLDER_HERE/llm.log
 ```
 
-If the log says `model ... not found`, use `claude-4.5-haiku`, click `Save Key`, click `Export Compose`, and run Step 7 again.
+If the log says `model ... not found`, the chosen `Strategy` is not registered in the target Incalmo checkout. Use a model that upstream `main` registers (for example `claude-4.5-sonnet`, `claude-3.5-haiku`, or `gpt-4o`), click `Save Key`, click `Export Compose`, and run Step 7 again.
 
 Do not put API keys in this README.

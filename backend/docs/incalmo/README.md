@@ -45,7 +45,7 @@ The current Equifax POC includes:
 
 The C2 block controls which attacker ports the generated Compose file publishes. The agent block is preserved in the DSL for Incalmo run context, but does not create a Docker service.
 
-The Equifax sample defaults to the LLM strategy shape by setting `strategy` to a model name such as `claude-4.5-haiku`. The exporter writes that as Incalmo's `planning_llm` and `execution_llm` config with `abstraction: incalmo`. To force the deterministic state-machine path instead, set `strategy` to a state-machine class name such as `EquifaxStrategy`.
+The Equifax sample defaults to the LLM strategy shape by setting `strategy` to a model name such as `claude-4.5-sonnet`. The exporter writes that as Incalmo's `planning_llm` and `execution_llm` config with `abstraction: incalmo`. The model name must be one the target Incalmo checkout registers in `incalmo/core/strategies/llm/langchain_registry.py`; upstream `main` includes `claude-4.5-sonnet` but not `claude-4.5-haiku`. To force the deterministic state-machine path instead, set `strategy` to a state-machine class name such as `EquifaxStrategy`.
 
 The exporter also adds a separate `incalmo_control` Docker network to every generated service. This is a runtime callback path for Sandcat/C2 traffic only; it is not part of the modeled attack topology.
 
