@@ -16,6 +16,98 @@ DEFAULT_C2_SERVER = "http://localhost:8888"
 DEFAULT_STRATEGY = "DefaultStrategy"
 DEFAULT_ENVIRONMENT = "DefaultEnvironment"
 DEFAULT_C2_PORTS = ["8888", "6379", "5678"]
+INCALMO_CONTROL_NETWORK = "incalmo_control"
+LLM_STRATEGIES = {
+    "claude-3-haiku",
+    "claude-3-opus",
+    "claude-3-sonnet",
+    "claude-3.5-haiku",
+    "claude-3.5-sonnet",
+    "claude-3.7-sonnet",
+    "claude-4.0-sonnet",
+    "claude-4.5-haiku",
+    "claude-4.5-sonnet",
+    "claude-opus-4-1",
+    "deepseek-7b",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    "gemini-2-flash",
+    "gemini-2.5-pro",
+    "gpt-3.5-turbo",
+    "gpt-4",
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gpt-5",
+    "gpt-o1",
+}
+
+# Incalmo's attacker/webserver Dockerfiles build nuclei from source with
+# `go install .../nuclei/v3/cmd/nuclei@latest`. Current nuclei (v3.8.0) requires
+# Go >= 1.25.7, but those images ship older Go, so the build downloads a newer Go
+# toolchain and compiles nuclei + its full dependency tree from source. Under
+# linux/amd64 emulation that is extremely slow and routinely fails. We cannot edit
+# the Incalmo checkout (it is a separate, read-only upstream repo), so the exporter
+# rewrites that one RUN step to download a prebuilt nuclei binary instead and emits
+# the result as `dockerfile_inline`. The Incalmo checkout is left untouched.
+NUCLEI_VERSION = "3.8.0"
+NUCLEI_PREBUILT_RUN = (
+    f'RUN wget -O /tmp/nuclei.zip "https://github.com/projectdiscovery/nuclei/releases/download/v{NUCLEI_VERSION}/nuclei_{NUCLEI_VERSION}_linux_amd64.zip" && \\\n'
+    "    python3 -c \"import zipfile; zipfile.ZipFile('/tmp/nuclei.zip').extractall('/tmp/nuclei')\" && \\\n"
+    "    install -m 0755 /tmp/nuclei/nuclei /usr/local/bin/nuclei && \\\n"
+    "    rm -rf /tmp/nuclei /tmp/nuclei.zip"
+)
+
+
+def patch_dockerfile_nuclei(text: str) -> tuple[str, bool]:
+    """Replace a `go install ... nuclei ...` RUN step with a prebuilt-binary
+    download. Returns (patched_text, changed). Leaves text untouched if no such
+    step exists (e.g. upstream already fixed it)."""
+    lines = text.splitlines()
+    out: list[str] = []
+    changed = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.lstrip().startswith("RUN"):
+            block = [line]
+            while block[-1].rstrip().endswith("\\") and i + 1 < len(lines):
+                i += 1
+                block.append(lines[i])
+            block_text = "\n".join(block)
+            if "go install" in block_text and "nuclei" in block_text:
+                out.append(NUCLEI_PREBUILT_RUN)
+                changed = True
+                i += 1
+                continue
+            out.extend(block)
+            i += 1
+            continue
+        out.append(line)
+        i += 1
+    suffix = "\n" if text.endswith("\n") else ""
+    return "\n".join(out) + suffix, changed
+
+
+def build_spec(*, context_abs: Path, out_dir: Path, dockerfile_rel: str) -> dict[str, Any]:
+    """Compose `build` block for an Incalmo-sourced image. Inlines a patched
+    Dockerfile (via dockerfile_inline) when the upstream Dockerfile builds nuclei
+    from source; otherwise references the original Dockerfile unchanged."""
+    spec: dict[str, Any] = {"context": relative_path(context_abs, out_dir)}
+    dockerfile_path = (context_abs / dockerfile_rel).resolve()
+    try:
+        original = dockerfile_path.read_text()
+    except OSError:
+        spec["dockerfile"] = dockerfile_rel
+        return spec
+    patched, changed = patch_dockerfile_nuclei(original)
+    if changed:
+        # Compose runs ${VAR} interpolation over dockerfile_inline, which would
+        # eat the Dockerfile's own build-time vars ($GOPATH, $TOMCAT_USER, ...).
+        # Escape every '$' as '$$' so Compose passes a literal '$' to the builder.
+        spec["dockerfile_inline"] = patched.replace("$", "$$")
+    else:
+        spec["dockerfile"] = dockerfile_rel
+    return spec
 
 
 def load_or_compile_environment(path: Path, *, name: str | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
@@ -89,6 +181,17 @@ def service_ports_by_host(environment: dict[str, Any]) -> dict[str, list[int]]:
     return {host_id: sorted(ports) for host_id, ports in ports_by_host.items()}
 
 
+def incalmo_strategy_config(strategy: str) -> dict[str, str]:
+    strategy = strategy.strip()
+    if strategy in LLM_STRATEGIES:
+        return {
+            "planning_llm": strategy,
+            "execution_llm": strategy,
+            "abstraction": "incalmo",
+        }
+    return {"name": strategy}
+
+
 def build_compose(
     environment: dict[str, Any],
     *,
@@ -106,6 +209,9 @@ def build_compose(
         "networks": {},
         "services": {},
         "volumes": {},
+    }
+    compose["networks"][INCALMO_CONTROL_NETWORK] = {
+        "driver": "bridge",
     }
 
     for network in environment.get("networks", []):
@@ -149,6 +255,9 @@ def build_compose(
     if not attacker_found:
         raise SystemExit("Incalmo Compose export requires one host with incalmo.role='attacker'.")
 
+    for service in compose["services"].values():
+        service.setdefault("networks", {})[INCALMO_CONTROL_NETWORK] = {}
+
     if not compose["volumes"]:
         compose.pop("volumes")
 
@@ -181,10 +290,7 @@ def attacker_service(
         context = incalmo_root / context
     dockerfile = str(incalmo.get("dockerfile") or "docker/attacker/incalmo.Dockerfile")
     return {
-        "build": {
-            "context": relative_path(context, out_dir),
-            "dockerfile": dockerfile,
-        },
+        "build": build_spec(context_abs=context, out_dir=out_dir, dockerfile_rel=dockerfile),
         "env_file": [relative_path(incalmo_root / ".env", out_dir)],
         "environment": [
             "SERVER_IP=localhost",
@@ -226,9 +332,11 @@ def target_service(
         context = Path(str(build_context))
         if not context.is_absolute():
             context = incalmo_root / context
-        service["build"] = {"context": relative_path(context, out_dir)}
-        if dockerfile:
-            service["build"]["dockerfile"] = str(dockerfile)
+        service["build"] = build_spec(
+            context_abs=context,
+            out_dir=out_dir,
+            dockerfile_rel=str(dockerfile) if dockerfile else "Dockerfile",
+        )
     else:
         image = str(host.get("dockerImage") or "ubuntu:22.04")
         if image.startswith("incalmo://"):
@@ -265,7 +373,7 @@ def build_incalmo_config(
 
     return {
         "name": environment.get("name") or "cyblocks-incalmo",
-        "strategy": {"name": resolved_strategy},
+        "strategy": incalmo_strategy_config(resolved_strategy),
         "environment": resolved_environment,
         "c2c_server": resolved_c2_server,
         "blacklist_ips": sorted(set(attacker_ips)),

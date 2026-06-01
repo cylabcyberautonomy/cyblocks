@@ -45,6 +45,10 @@ The current Equifax POC includes:
 
 The C2 block controls which attacker ports the generated Compose file publishes. The agent block is preserved in the DSL for Incalmo run context, but does not create a Docker service.
 
+The Equifax sample defaults to the LLM strategy shape by setting `strategy` to a model name such as `claude-4.5-sonnet`. The exporter writes that as Incalmo's `planning_llm` and `execution_llm` config with `abstraction: incalmo`. The model name must be one the target Incalmo checkout registers in `incalmo/core/strategies/llm/langchain_registry.py`; upstream `main` includes `claude-4.5-sonnet` but not `claude-4.5-haiku`. To force the deterministic state-machine path instead, set `strategy` to a state-machine class name such as `EquifaxStrategy`.
+
+The exporter also adds a separate `incalmo_control` Docker network to every generated service. This is a runtime callback path for Sandcat/C2 traffic only; it is not part of the modeled attack topology.
+
 ## Equifax Mini Environment Shape
 
 The checked-in example models:
@@ -90,6 +94,18 @@ Cleanup:
 cd ../Incalmo
 docker compose -p incalmo-equifax -f ../cyblocks/backend/generated/incalmo-equifax-compose/compose.yml down -v --remove-orphans
 ```
+
+## Nuclei Build Patch
+
+Incalmo's attacker and webserver Dockerfiles build `nuclei` from source with `go install .../nuclei/v3/cmd/nuclei@latest`. Current `nuclei` (v3.8.0) requires Go >= 1.25.7, but those images ship an older Go, so the build pulls a newer Go toolchain and compiles `nuclei` plus its full dependency tree from source. Under `linux/amd64` emulation this is extremely slow and routinely fails.
+
+Cyblocks cannot edit the separate, read-only Incalmo checkout, so the exporter handles this at export time:
+
+- It reads each referenced Incalmo Dockerfile, and if a `RUN` step builds `nuclei` from source, it rewrites only that step to download a prebuilt `nuclei` binary (using `wget` + `python3`, both already in the images).
+- The patched Dockerfile is emitted as Compose `dockerfile_inline`, with the original Incalmo path kept as the build `context`, so `COPY` paths still resolve. Every `$` in the inlined Dockerfile is escaped to `$$` so Compose does not interpolate the Dockerfile's own build-time variables.
+- If a Dockerfile has no `nuclei`-from-source step (for example a future upstream fix), the exporter references the original Dockerfile unchanged.
+
+This keeps the Incalmo checkout pristine: the entire fix lives in the generated `compose.yml`. Someone can clone Cyblocks and stock Incalmo `main`, run `Export Compose`, and build without touching either repo.
 
 ## Notes
 

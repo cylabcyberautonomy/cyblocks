@@ -52,9 +52,9 @@ Boards may also include top-level `incalmo` metadata:
 ```json
 {
   "project": "incalmo-equifax",
-  "strategy": "EquifaxStrategy",
+  "strategy": "claude-4.5-sonnet",
   "environment": "EquifaxLarge",
-  "c2Server": "http://localhost:8888",
+  "c2Server": "http://attacker:8888",
   "debug": true
 }
 ```

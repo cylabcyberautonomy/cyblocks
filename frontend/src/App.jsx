@@ -425,7 +425,7 @@ function normalizeIncalmoConfig(value) {
     project: source.project || "",
     strategy: source.strategy || "",
     environment: source.environment || "",
-    c2Server: source.c2Server || "http://localhost:8888",
+    c2Server: source.c2Server || "http://attacker:8888",
     debug: typeof source.debug === "boolean" ? source.debug : true
   };
 }
@@ -453,7 +453,7 @@ function App() {
   const [selectedConnectionId, setSelectedConnectionId] = useState(null);
   const [status, setStatus] = useState("Ready");
   const [incalmoApiKey, setIncalmoApiKey] = useState("");
-  const [incalmoKeyProvider, setIncalmoKeyProvider] = useState("openai");
+  const [incalmoKeyProvider, setIncalmoKeyProvider] = useState("anthropic");
   const [incalmoStatus, setIncalmoStatus] = useState(null);
   const [incalmoMessage, setIncalmoMessage] = useState("No Incalmo monitor data yet.");
   const [runState, setRunState] = useState({
@@ -2536,9 +2536,9 @@ function createIncalmoEquifaxCanvas() {
     name: "incalmo-equifax",
     incalmo: {
       project: "incalmo-equifax",
-      strategy: "EquifaxStrategy",
+      strategy: "claude-4.5-sonnet",
       environment: "EquifaxLarge",
-      c2Server: "http://localhost:8888",
+      c2Server: "http://attacker:8888",
       debug: true
     },
     runtimeBlocks: [

@@ -75,8 +75,14 @@ http://127.0.0.1:5173
 In the Cyblocks page:
 
 1. Click `Equifax Sample`.
-2. Click `Compile`.
-3. Click `Export Compose`.
+2. In the `Incalmo` panel, check `Strategy`.
+3. The default is `claude-4.5-sonnet`, which uses an Anthropic key. This model is registered in upstream Incalmo `main`.
+4. If you want to use an OpenAI key instead, change `Strategy` to `gpt-4o` or `gpt-4o-mini`.
+5. Pick the matching `LLM provider`.
+6. Paste the API key.
+7. Click `Save Key`.
+8. Click `Compile`.
+9. Click `Export Compose`.
 
 You can use either `Export Compose` button:
 
@@ -148,8 +154,26 @@ cd /Users/mycomputer/Documents/GitHub/Incalmo
 docker compose \
   -p incalmo-equifax \
   -f ../cyblocks/backend/generated/incalmo-equifax-compose/compose.yml \
+  exec attacker sh -lc 'for i in $(seq 1 60); do curl -fsS http://attacker:8888/agents >/dev/null 2>&1 && echo "C2 ready" && exit 0; sleep 2; done; echo "C2 not ready"; exit 1'
+
+docker compose \
+  -p incalmo-equifax \
+  -f ../cyblocks/backend/generated/incalmo-equifax-compose/compose.yml \
   exec attacker uv run main.py
 ```
+
+It is normal to see repeated `[DEBUG] Current environment state` lines while the agent is working.
+
+Good signs in the newest `output/.../actions.json` file:
+
+```text
+VulnerableServiceFound
+InfectedNewHost
+SSHCredentialFound
+ExfiltratedData
+```
+
+Press `Ctrl+C` to stop the strategy run.
 
 ## 8. Clean Up
 
@@ -196,5 +220,16 @@ If Incalmo needs an LLM API key:
 1. Use the `LLM provider` dropdown in the `Incalmo` panel.
 2. Paste the key into the `API key` field.
 3. Click `Save Key`.
+4. If an Incalmo strategy run is already in progress, stop it and start a new run.
+
+If the strategy starts and then stops right away, check the newest LLM log:
+
+```bash
+cd /Users/mycomputer/Documents/GitHub/Incalmo
+ls -td output/* | head
+tail -n 80 output/PASTE_NEWEST_FOLDER_HERE/llm.log
+```
+
+If the log says `model ... not found`, the chosen `Strategy` is not registered in the target Incalmo checkout. Use a model that upstream `main` registers (for example `claude-4.5-sonnet`, `claude-3.5-haiku`, or `gpt-4o`), click `Save Key`, click `Export Compose`, and run Step 7 again.
 
 Do not put API keys in this README.
