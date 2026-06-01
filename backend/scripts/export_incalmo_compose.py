@@ -16,6 +16,30 @@ DEFAULT_C2_SERVER = "http://localhost:8888"
 DEFAULT_STRATEGY = "DefaultStrategy"
 DEFAULT_ENVIRONMENT = "DefaultEnvironment"
 DEFAULT_C2_PORTS = ["8888", "6379", "5678"]
+INCALMO_CONTROL_NETWORK = "incalmo_control"
+LLM_STRATEGIES = {
+    "claude-3-haiku",
+    "claude-3-opus",
+    "claude-3-sonnet",
+    "claude-3.5-haiku",
+    "claude-3.5-sonnet",
+    "claude-3.7-sonnet",
+    "claude-4.0-sonnet",
+    "claude-4.5-haiku",
+    "claude-4.5-sonnet",
+    "claude-opus-4-1",
+    "deepseek-7b",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    "gemini-2-flash",
+    "gemini-2.5-pro",
+    "gpt-3.5-turbo",
+    "gpt-4",
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gpt-5",
+    "gpt-o1",
+}
 
 
 def load_or_compile_environment(path: Path, *, name: str | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
@@ -89,6 +113,17 @@ def service_ports_by_host(environment: dict[str, Any]) -> dict[str, list[int]]:
     return {host_id: sorted(ports) for host_id, ports in ports_by_host.items()}
 
 
+def incalmo_strategy_config(strategy: str) -> dict[str, str]:
+    strategy = strategy.strip()
+    if strategy in LLM_STRATEGIES:
+        return {
+            "planning_llm": strategy,
+            "execution_llm": strategy,
+            "abstraction": "incalmo",
+        }
+    return {"name": strategy}
+
+
 def build_compose(
     environment: dict[str, Any],
     *,
@@ -106,6 +141,9 @@ def build_compose(
         "networks": {},
         "services": {},
         "volumes": {},
+    }
+    compose["networks"][INCALMO_CONTROL_NETWORK] = {
+        "driver": "bridge",
     }
 
     for network in environment.get("networks", []):
@@ -148,6 +186,9 @@ def build_compose(
 
     if not attacker_found:
         raise SystemExit("Incalmo Compose export requires one host with incalmo.role='attacker'.")
+
+    for service in compose["services"].values():
+        service.setdefault("networks", {})[INCALMO_CONTROL_NETWORK] = {}
 
     if not compose["volumes"]:
         compose.pop("volumes")
@@ -265,7 +306,7 @@ def build_incalmo_config(
 
     return {
         "name": environment.get("name") or "cyblocks-incalmo",
-        "strategy": {"name": resolved_strategy},
+        "strategy": incalmo_strategy_config(resolved_strategy),
         "environment": resolved_environment,
         "c2c_server": resolved_c2_server,
         "blacklist_ips": sorted(set(attacker_ips)),

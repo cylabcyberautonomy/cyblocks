@@ -4,9 +4,9 @@
   "name": "incalmo-equifax",
   "incalmo": {
     "project": "incalmo-equifax",
-    "strategy": "EquifaxStrategy",
+    "strategy": "claude-4.5-haiku",
     "environment": "EquifaxLarge",
-    "c2Server": "http://localhost:8888",
+    "c2Server": "http://attacker:8888",
     "debug": true
   },
   "runtimeBlocks": [
