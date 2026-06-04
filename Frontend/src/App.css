@@ -1,0 +1,46 @@
+/*layout rules for the app, using flexbox to 
+create a responsive layout with a tapbar, sidebar and main canves*/
+
+.App{
+color: #fff;
+height: 100vh;
+display: flex;
+flex-direction: column;
+}
+
+.Tapbar{
+color: #fff;
+display: flex;  
+padding: 2px; 
+background: #525252
+}
+
+.Main{
+color: #fff;
+flex: 1; 
+display: flex; 
+flex-direction: row;
+}
+
+.Sidebar{
+  color: #fff;
+  padding: 5px;
+  width: 220px; 
+  background:
+  #2c2b2b;
+}
+
+.Canvas{
+  color: #000000;
+  flex: 1; 
+  background: #f7f4f4;
+}
+
+.Block{
+  color: #fff;
+  padding: 8px 81px;
+  margin: 8px;
+  background: #525252;
+  border-radius: 6px;
+  cursor: grab;
+}
