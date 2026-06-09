@@ -6,13 +6,16 @@ color: #fff;
 height: 100vh;
 display: flex;
 flex-direction: column;
+background: #1e1e1e;
 }
 
 .Tapbar{
 color: #fff;
 display: flex;  
 padding: 2px; 
-background: #525252
+background: #2c2b2b;
+position: relative;
+gap: 4px;
 }
 
 .Main{
@@ -29,18 +32,112 @@ flex-direction: row;
   background:
   #2c2b2b;
 }
-
 .Canvas{
   color: #000000;
   flex: 1; 
   background: #f7f4f4;
 }
-
 .Block{
   color: #fff;
-  padding: 8px 81px;
+  padding: 8px 5px;
   margin: 8px;
   background: #525252;
   border-radius: 6px;
   cursor: grab;
+}
+.Toolbar{
+  color: #fff;
+  display: flex;  
+  padding: 1px; 
+  background: #1e1e1e;
+  gap: 4px;
+}
+.Menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  background: #2d2d3a;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.Dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #2d2d3a;
+  color: white;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 16px;
+  z-index: 100;
+}
+
+
+.Tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #6B6B6B;
+  color: white;
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+.Tab button {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+.Tab button:last-child {   /* the x */
+  font-size: 12px;
+  opacity: 0.6;
+}
+.Tab button:last-child:hover {
+  opacity: 1;
+}
+
+.Inspector {
+  position: fixed;
+  width: 260px;
+  height: 320px;
+  min-width: 200px;
+  min-height: 150px;
+  resize: both;        /* the browser gives you a resize grip in the corner — free! */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: #2c2b2b;
+  color: #fff;
+  border: 1px solid #444;
+  border-radius: 6px;
+  z-index: 50;
+}
+.InspectorHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 8px;
+  background: #3a3a3a;
+  cursor: move;
+  user-select: none;   /* don't highlight text while dragging */
+}
+.InspectorHeader button {
+  background: none; border: none; color: #fff; cursor: pointer;
+}
+.InspectorBody {
+  flex: 1;
+  padding: 10px;
+  overflow-y: auto;
+}
+.InspectorBody input {
+  width: 100%;
+  margin-bottom: 8px;
 }

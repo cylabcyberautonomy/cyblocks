@@ -1,9 +1,12 @@
-# Cyblocks - Simple IDE using React + Vite + ReactFlow - Week 2 deliverables   
+# Cyblocks - Frontend deliverables   
 
 Description: A simple drag-and-drop IDE for designing agentic cybersecurity systems. Drag
 blocks from the sidebar onto the canvas, pan and zoom, and switch between
 Environment and Attacker modes from the File menu.
 
+
+Week 3 Progress Descreption:
+Added editable properties to blocks and connection logic does allow for differnt type of connction --> Compilation is implmented + still experimenting with the JSON file structure
 
 ## Built with 
 
@@ -15,7 +18,7 @@ This Frontend was built with:
 **Vite** - Because it is a fast dev server and building tool
 
 **React Flow** - Because it provides draggable, zoomable node canvas
-
+ 
 
 
 
