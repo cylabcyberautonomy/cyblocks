@@ -62,3 +62,6 @@ def configure_docker_cli_environment() -> None:
 
 def run():
     
+
+def run_dir(project: str, base: Path | None = None) -> Path:
+    return (base or DEFAULT_RUNS_DIR) / project
