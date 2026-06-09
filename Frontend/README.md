@@ -6,7 +6,7 @@ Environment and Attacker modes from the File menu.
 
 
 Week 3 Progress Descreption:
-Added editable properties to blocks and connection logic does allow for differnt type of connction --> Compilation is still not implmented yet 
+Added editable properties to blocks and connection logic does allow for differnt type of connction --> Compilation is implmented + still experimenting with the JSON file structure
 
 ## Built with 
 
