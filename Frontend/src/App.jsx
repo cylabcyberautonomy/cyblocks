@@ -19,8 +19,18 @@ const blockProperties = {
   User:{name: "", password: "", privilege_level: ""},
   File:{name: "", path: "", sensitivity: ""}
 };
-
-
+const blockStyles = {
+  Host:            { background: "#0095ff", icon: "🖥️" },
+  Router:          { background: "#6b77be", icon: "📡" },
+  Service:         { background: "#0da319", icon: "⚙️" },
+  Vulnerability:   { background: "#960a1f", icon: "🐞" },
+  Misconfiguration:{ background: "#ffaf0f", icon: "⚠️" },
+  Subnet:          { background: "#2241e0", icon: "🌐" },
+  User:            { background: "#e0dd3c", icon: "👤" },
+  File:            { background: "#737572", icon: "📄" },
+  Agent:           { background: "#000000", icon: "🤖" },
+  Tool:            { background: "#000000", icon: "🔧" },
+};
 
 //we need the first laod of the page to open an environment tap  so people acn drag and drop 
 const initialFile = { id: crypto.randomUUID(), name: "Env 1", type: "environment", nodes: [], edges: [] };
@@ -30,6 +40,7 @@ const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 const [files , setFiles] = useState([initialFile]); //this will allow us to manage the state of the files that we have uploaded, we will use this to show the list of files in the sidebar 
 const [activeId, setActiveId] = useState(initialFile.id); //this will allow us to manage the state of the active file, we will use this to switch between different files and show different content based on the active file
 const [menuOpen, setMenuOpen] = useState(false);// to choose which tab we want 
+const [compileMenuOpen, setCompileMenuOpen] = useState(false);
 const [selectedId, setSelectedId] = useState(null);
 const activeFile = files.find((f) => f.id === activeId);
 const nodes = activeFile ? activeFile.nodes : []; //this will get the nodes of the active file, if there is no active file it will return an empty array, we will use this to show the nodes on the canvas based on the active file
@@ -68,13 +79,21 @@ const closeFile = (id) => {
   if (activeId === id) setActiveId(null);//delete the active file and set the active id to null if we closed the active file
 };
 
-
 const updateNodeProperty = (nodeId, key, value) => {
-  setActiveNodes((nds) => nds.map((n) =>
-    n.id === nodeId
-      ? { ...n, data: { ...n.data, properties: { ...n.data.properties, [key]: value } } }
-      : n
-  ));
+  setActiveNodes((nds) => nds.map((n) =>{
+    if ( n.id !== nodeId) return n;
+
+    const newProperties = { ...n.data.properties, [key]: value };
+
+    const newLabel = (key ==="name"  || key === "Type")
+      ? makeLabel(n.data.blockType,value)
+      : n.data.label;
+
+      return{
+      ...n,
+    data: { ...n.data, properties: newProperties, label: newLabel },
+    };
+  }));
 };
 
 //need a button where we can delete a specific node 
@@ -118,6 +137,8 @@ const connectionKind = (sourceType, targetType) => {
     return { status: "valid", type: "vulnerability" };
   if (sourceType === "Host" && targetType === "Router")
     return { status: "valid", type: "topology" };
+  if (sourceType === "Router" && targetType === "Host")
+    return { status: "valid", type: "topology" };
   if (sourceType === "Router" && targetType === "Router")
     return { status: "valid", type: "topology" };
   if (sourceType === "Host" && targetType === "Host")
@@ -151,7 +172,10 @@ const connectionKind = (sourceType, targetType) => {
 
   return { status: "invalid", reason: `A ${sourceType} can't connect to a ${targetType}.` };
 };
-
+const makeLabel = (blockType, idValue) => {
+  const icon = blockStyles[blockType]?.icon ?? "";
+  return idValue ? `${icon} ${blockType}: ${idValue}` : `${icon} ${blockType}`;
+};
 //Compile the current canves file into a JSON file that can be used in the backend to prodcue a DSL 
 //each block or node has a a specific id attched to it 
 const findNode = (id) => nodes.find((n) => n.id === id);
@@ -162,214 +186,178 @@ const idName = (node) => {
     return p.Type;
   return p.name;
 };
-//rather than using subnet name and id  for each host we just follow its edge to know which subnet it connect to 
-const subnetOf = (hostId) => {
-  for (const e of edges) {
-    let otherId = null;
-    if (e.source === hostId) otherId = e.target;
-    else if (e.target === hostId) otherId = e.source;
-    if (!otherId) continue;
-    const other = findNode(otherId);
-    if (other && other.data.blockType === "Subnet") return other;
-  }
-  return null;
-};
-//same thing for routers 
-const networksOf = (routerId) => {
-  const result = [];
-  for (const e of edges) {
-    let otherId = null;
-    if (e.source === routerId) otherId = e.target;
-    else if (e.target === routerId) otherId = e.source;
-    if (!otherId) continue;
-    const other = findNode(otherId);
-    if (other && other.data.blockType === "Subnet") {
-      result.push(other.data.properties.name);
-    }
-  }
-  return result;
-};
-
-//we sill use hierachy structure for JSON file to match the examples from MHbench 
-const compile = () => {
-  const subnets = [];//we can have muliti subnets 
-  const subnetCounts = {};  // subnet id -> how many hosts we've given an IP so far
-  const hostBySubnet = {}; // each subnet can hvae more than one host  
- //looking for only subnet blcoks so we can initlize then fisrt and add them to the array 
-  for (const node of nodes) {
-    const p = node.data.properties || {};
-    if (node.data.blockType === "Subnet") {
-      subnets.push({ name: p.name, CIDR: p.CIDR });
-      hostBySubnet[p.name] = [];  //we will find any host connected to this subnet and add it to this array 
-    }
-  }
-  for (const node of nodes) {
-    const p = node.data.properties || {};
-    if (node.data.blockType === "Host") {
-      const subnet = subnetOf(node.id);//which subnet is this host connected to 
-      const subnetName = subnet ? subnet.data.properties.name : null;
-      if (subnet && subnet.data.properties.CIDR) {
-        const octets = subnet.data.properties.CIDR.split("/")[0].split(".");//we parse the CIDR to derive the IP base 
-        const n = subnetCounts[subnet.id] || 0;
-        octets[3] = String(10 + n);//because we only change the last filed 
-        subnetCounts[subnet.id] = n + 1;//everytime these is an additiona host on teh same subnet so it gets n = 1 or icremented more 
-        const host = { name: p.name, image: p.image, ip: octets.join("."), ram: p.RAM, disk: p.disk };//building the hsot object 
-        if (subnetName && hostBySubnet[subnetName]) { 
-          hostBySubnet[subnetName].push(host);//gets added to the subnet list 
-        }
-      }
-    }
-  }
-  // Build the nested subnets array -with hosts inside-
-  const nestedSubnets = subnets.map((subnet) => ({
-    name: subnet.name,
-    cidr: subnet.CIDR,  
-    hosts: hostBySubnet[subnet.name] || [],
-  }));
-
-  // now handling differnt type of blcoks(services, vulnerabilities, misconfigurations, router)
-  const services = [], vulnerabilities = [], misconfigurations = [];
-  const routers = [], users= [], files = [];
+const buildEnv = () => {
+  //building a normal env object that is flat so if we want to compile to docker we can use this env object or use it for openstack 
+ const env = {
+    name: activeFile.name,
+    hosts: [], subnets: [], routers: [],
+    services: [], vulnerabilities: [], misconfigurations: [],
+    users: [], files: [],
+    connections: [],
+  };
+  //loap through all of our nodes on the canves and see which kind of block are they so we can push them into our env object 
   for (const node of nodes) {
     const p = node.data.properties || {};
     switch (node.data.blockType) {
-      case "Service":
-        services.push({ name: p.Type, type: p.Type, protocol: p.protocol, port: p.port, version: p.version });//set up the service object 
-        break;
-      case "Vulnerability":
-        vulnerabilities.push({ name: p.Type, type: p.Type, cve: p.CVE, description: p.Description, severity: p.severity });
-        break;
-      case "Misconfiguration":
-        misconfigurations.push({ name: p.name, description: p.Description });
-        break;
-      case "Router":
-        routers.push({ name: p.name, image: p.image, networks: networksOf(node.id) });
-        break;
-      case "User":
-        services.push({ name: p.name, type: "user", privilege_level: p.privilege_level, password: p.password });
-        break;
-      case "File":
-       services.push({ name: p.name, type: "file", path: p.path, sensitivity: p.sensitivity });
-        break;
+      case "Host":            env.hosts.push({ name: p.name, image: p.image, ram: p.RAM, disk: p.disk }); break;
+      case "Subnet":          env.subnets.push({ name: p.name, cidr: p.CIDR }); break;
+      case "Router":          env.routers.push({ name: p.name, image: p.image }); break;
+      case "Service":         env.services.push({ name: p.Type, protocol: p.protocol, port: p.port, version: p.version }); break;
+      case "Vulnerability":   env.vulnerabilities.push({ name: p.Type, cve: p.CVE, description: p.Description, severity: p.severity }); break;
+      case "Misconfiguration":env.misconfigurations.push({ name: p.name, description: p.Description }); break;
+      case "User":            env.users.push({ name: p.name, privilege_level: p.privilege_level, password: p.password }); break;
+      case "File":            env.files.push({ name: p.name, path: p.path, sensitivity: p.sensitivity }); break;
     }
   }
-
-  // creating subnet_connections from Router edges (Router -> Subnet)
-  const subnetConnections = [];
+  // write every connection or edges to the env object by defining the source and target 
   for (const edge of edges) {
     const source = findNode(edge.source);
     const target = findNode(edge.target);
-    if (source && target) {
-      const sourceType = source.data.blockType;
-      const targetType = target.data.blockType;
-      // Router -> Subnet or Subnet -> Router
-      if ((sourceType === "Router" && targetType === "Subnet") || 
-          (sourceType === "Subnet" && targetType === "Router")) {
-        const routerNode = sourceType === "Router" ? source : target;
-        const subnetNode = sourceType === "Subnet" ? source : target;
-        const routerName = routerNode.data.properties.name;
-        const subnetName = subnetNode.data.properties.name;
-        subnetConnections.push({//setting up the object for the connction between routers and subnets 
-          router: routerName,
-          from_subnet: subnetName,
-          to_subnet: null,
-          bidirectional: true,
-        });
-      }
-    }
-  }
-
-  // Creating a full connections array for all other edges
-  const connections = [];
-  for (const edge of edges) {
-    const source = findNode(edge.source);
-    const target = findNode(edge.target);
-    if (!source || !target) continue;//not looking at the samee edge 
-    const sourceType = source.data.blockType;
-    const targetType = target.data.blockType;
-    const label = edge.data?.kind || connectionKind(sourceType, targetType).type;
-    
-    // Skip Subnet/Router topology edges we already handled that in the previosu part 
-    if ((sourceType === "Subnet" || sourceType === "Router") && 
-        (targetType === "Subnet" || targetType === "Router")) {
-      continue;
-    }
-    if ((sourceType === "Host" && targetType === "Subnet") ||
-        (sourceType === "Subnet" && targetType === "Host")) {
-      continue;  // Host->Subnet already captured in nested structure
-    }
-    const from = idName(source);
-    const to = idName(target);
-    connections.push({
-      from,
-      to,
-      fromType: sourceType,
-      toType: targetType,
-      label,
+    if (!source || !target) continue;
+    const fromType = source.data.blockType;
+    const toType = target.data.blockType;
+    env.connections.push({
+      from: idName(source),
+      to: idName(target),
+      fromType,
+      toType,
+      kind: edge.data?.kind || connectionKind(fromType, toType).type,
     });
   }
-
-  // craeting the final JSON
-  const env = {
-    name: activeFile.name,
-    networks: [
-      {
-        name: activeFile.name,
-        subnets: nestedSubnets,
-      }
-    ],
-    //putting all our objects into one object for JSON
-    subnet_connections: subnetConnections,
-    services,
-    vulnerabilities,
-    misconfigurations,
-    routers,
-    users, 
-    files,
-    connections,
-  };
-
-  // Download JSON for now then it will just be given to backend 
-  const text = JSON.stringify(env, null, 2);
+  return env;
+}
+const exportEnv = () => downloadJSON(`${activeFile.name}-env.json`, buildEnv());
+// Download JSON for now then it will just be given to backend --> this fucntion need to be declared fisrt so it can be used in the compile function 
+const downloadJSON = (filename, data0bj) => {
+  const text = JSON.stringify(data0bj, null, 2);
   const blob = new Blob([text], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${activeFile.name}.json`;
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
 };
+//we sill use hierachy structure for JSON file to match the examples from MHbench 
+//We need to use the flat env we created and use it to compile a file for docker where the orginization is from top to bottom 
+//subnets contain hosts and host contin other stuff and router could connect subnets or hosts toghther 
+const compileToDocker = (env) => {
+  const hostsBySubnet = {};
+  const Subnetcounts = {};
+  //first find each subnet that has host inside it so we check the conntions we made in env that contain Host or Subnet 
 
+    const subnetOfHost = (hostName) => {
+    for (const c of env.connections) {
+      if (c.fromType === "Host" && c.from === hostName && c.toType === "Subnet") return c.to;
+      if (c.toType === "Host" && c.to === hostName && c.fromType === "Subnet") return c.from;
+    }
+    return null;
+  };
+
+  //we assign hosts under subnets 
+  env.subnets.forEach((s) => { hostsBySubnet[s.name] = []; });
+
+  //for each host we need to assign it different IP
+  for (const h of env.hosts) {
+    const subnet = env.subnets.find((s) => s.name === subnetOfHost(h.name));
+    if (!subnet || !subnet.cidr) continue;
+    const octets = subnet.cidr.split("/")[0].split(".");
+    const n = Subnetcounts[subnet.name] || 0;
+    octets[3] = String(10 + n);
+    Subnetcounts[subnet.name] = n + 1;
+    hostsBySubnet[subnet.name].push({ name: h.name, image: h.image, ip: octets.join("."), ram: h.ram, disk: h.disk });
+  }
+
+  const subnets = env.subnets.map((s) => ({ name: s.name, cidr: s.cidr, hosts: hostsBySubnet[s.name] || [] }));
+
+// which subnets does a router touch?
+  const networksOfRouter = (routerName) => {
+    const result = [];
+    for (const c of env.connections) {
+      if (c.fromType === "Router" && c.from === routerName && c.toType === "Subnet") result.push(c.to);
+      if (c.toType === "Router" && c.to === routerName && c.fromType === "Subnet") result.push(c.from);
+    }
+    return result;
+  };
+  const routers = env.routers.map((r) => ({ name: r.name, image: r.image, networks: networksOfRouter(r.name) }));
+
+  // subnet_connections from Router↔Subnet
+  const subnetConnections = [];
+  for (const c of env.connections) {
+    const rs = c.fromType === "Router" && c.toType === "Subnet";
+    const sr = c.fromType === "Subnet" && c.toType === "Router";
+    if (rs || sr) subnetConnections.push({ router: rs ? c.from : c.to, from_subnet: rs ? c.to : c.from, to_subnet: null, bidirectional: true });
+  }
+
+  // remaining connections (drop the topology ones docker captures elsewhere)
+  const connections = [];
+  for (const c of env.connections) {
+    const topoPair = (c.fromType === "Subnet" || c.fromType === "Router") && (c.toType === "Subnet" || c.toType === "Router");
+    const hostSubnet = (c.fromType === "Host" && c.toType === "Subnet") || (c.fromType === "Subnet" && c.toType === "Host");
+    if (topoPair || hostSubnet) continue;
+    connections.push({ from: c.from, to: c.to, fromType: c.fromType, toType: c.toType, label: c.kind });
+  }
+  //building our env object with all the small objects we have built 
+  const dockerEnv = {
+    name: env.name,
+    networks: [{ name: env.name, subnets }],
+    subnet_connections: subnetConnections,
+    services: env.services.map((s) => ({ ...s, type: s.name })),
+    vulnerabilities: env.vulnerabilities,
+    misconfigurations: env.misconfigurations,
+    routers,
+    users: env.users,
+    files: env.files,
+    connections,
+  };
+  downloadJSON(`${env.name}-docker.json`, dockerEnv);
+};
+
+
+//To have the ability to compile to differnt stuff 
+const targets = {
+  docker: compileToDocker,
+};
+
+const compile = (targetName) => {
+  const env = buildEnv();              // flat envionment
+  const target = targets[targetName];  // which compilation to choose 
+  if (!target) {
+    alert("Unknown target: " + targetName);
+    return;
+  }
+  target(env);                         
+};
 
 
 const loadDemoEnvironment = () => {
   const demoNodes = [
     // Subnets
-    { id: "subnet-1", data: { label: "DMZ", blockType: "Subnet", properties: { name: "dmz", CIDR: "172.20.0.0/24" } }, position: { x: 100, y: 50 } },
-    { id: "subnet-2", data: { label: "Internal", blockType: "Subnet", properties: { name: "internal", CIDR: "10.0.0.0/24" } }, position: { x: 400, y: 50 } },
+    { id: "subnet-1", data: { label: "network: DMZ", blockType: "Subnet", properties: { name: "dmz", CIDR: "172.20.0.0/24" } }, position: { x: 100, y: 50 } },
+    { id: "subnet-2", data: { label: "network: Internal", blockType: "Subnet", properties: { name: "internal", CIDR: "10.0.0.0/24" } }, position: { x: 400, y: 50 } },
     
     // Hosts
-    { id: "host-1", data: { label: "web-server", blockType: "Host", properties: { name: "web-server", image: "nginx:latest", RAM: "512m", disk: "1g" } }, position: { x: 50, y: 200 } },
-    { id: "host-2", data: { label: "db-server", blockType: "Host", properties: { name: "db-server", image: "mysql:8", RAM: "1g", disk: "2g" } }, position: { x: 350, y: 200 } },
-    { id: "host-3", data: { label: "jump-host", blockType: "Host", properties: { name: "jump-host", image: "ubuntu:22.04", RAM: "512m", disk: "1g" } }, position: { x: 650, y: 200 } },
+    { id: "host-1", data: { label: "host: web-server", blockType: "Host", properties: { name: "web-server", image: "nginx:latest", RAM: "512m", disk: "1g" } }, position: { x: 50, y: 200 } },
+    { id: "host-2", data: { label: "host: db-server", blockType: "Host", properties: { name: "db-server", image: "mysql:8", RAM: "1g", disk: "2g" } }, position: { x: 350, y: 200 } },
+    { id: "host-3", data: { label: "host: jump-host", blockType: "Host", properties: { name: "jump-host", image: "ubuntu:22.04", RAM: "512m", disk: "1g" } }, position: { x: 650, y: 200 } },
     
     // Services
-    { id: "svc-1", data: { label: "http-web", blockType: "Service", properties: { name: "http-web", Type: "web", protocol: "tcp", port: "80", version: "nginx-1.24" } }, position: { x: 50, y: 350 } },
-    { id: "svc-2", data: { label: "mysql-db", blockType: "Service", properties: { name: "mysql-db", Type: "database", protocol: "tcp", port: "3306", version: "mysql-8.0" } }, position: { x: 350, y: 350 } },
+    { id: "svc-1", data: { label: "service: http-web", blockType: "Service", properties: { name: "http-web", Type: "web", protocol: "tcp", port: "80", version: "nginx-1.24" } }, position: { x: 50, y: 350 } },
+    { id: "svc-2", data: { label: "service: mysql-db", blockType: "Service", properties: { name: "mysql-db", Type: "database", protocol: "tcp", port: "3306", version: "mysql-8.0" } }, position: { x: 350, y: 350 } },
     
     // Vulnerability
-    { id: "vuln-1", data: { label: "sql-injection", blockType: "Vulnerability", properties: { Type: "sql-injection", CVE: "CVE-2024-12345", Description: "SQL injection in login form", severity: "High" } }, position: { x: 50, y: 450 } },
+    { id: "vuln-1", data: { label: "Vuln: sql-injection", blockType: "Vulnerability", properties: { Type: "sql-injection", CVE: "CVE-2024-12345", Description: "SQL injection in login form", severity: "High" } }, position: { x: 50, y: 450 } },
     
     // Users
-    { id: "user-1", data: { label: "admin", blockType: "User", properties: { name: "admin", password: "admin123", privilege_level: "admin" } }, position: { x: 200, y: 500 } },
-    { id: "user-2", data: { label: "john", blockType: "User", properties: { name: "john", password: "john123", privilege_level: "user" } }, position: { x: 500, y: 500 } },
+    { id: "user-1", data: { label: "user: admin", blockType: "User", properties: { name: "admin", password: "admin123", privilege_level: "admin" } }, position: { x: 200, y: 500 } },
+    { id: "user-2", data: { label: "user: john", blockType: "User", properties: { name: "john", password: "john123", privilege_level: "user" } }, position: { x: 500, y: 500 } },
     
     // Files
-    { id: "file-1", data: { label: "config.json", blockType: "File", properties: { name: "config.json", path: "/etc/config.json", sensitivity: "confidential" } }, position: { x: 200, y: 600 } },
-    { id: "file-2", data: { label: "secrets.txt", blockType: "File", properties: { name: "secrets.txt", path: "/home/admin/secrets.txt", sensitivity: "critical" } }, position: { x: 500, y: 600 } },
+    { id: "file-1", data: { label: "file: config.json", blockType: "File", properties: { name: "config.json", path: "/etc/config.json", sensitivity: "confidential" } }, position: { x: 200, y: 600 } },
+    { id: "file-2", data: { label: "file: secrets.txt", blockType: "File", properties: { name: "secrets.txt", path: "/home/admin/secrets.txt", sensitivity: "critical" } }, position: { x: 500, y: 600 } },
     
     // Router
-    { id: "router-1", data: { label: "core-router", blockType: "Router", properties: { name: "core-router", image: "router-vm:latest" } }, position: { x: 400, y: 100 } },
+    { id: "router-1", data: { label: "router: core-router", blockType: "Router", properties: { name: "core-router", image: "router-vm:latest" } }, position: { x: 400, y: 100 } },
   ];
 
   const demoEdges = [
@@ -480,9 +468,16 @@ return (
           </div>
       )}
     <button onClick={() => setActiveNodes(() => [])}>Clear canvas</button>
-    <button onClick={compile}>Compile</button>
+    <button onClick={exportEnv}>Export Environment </button>
+    <div style={{ position: "relative", display: "inline-block" }}>
+    <button onClick={() => setCompileMenuOpen(!compileMenuOpen)}>Compile ▾</button>
+    {compileMenuOpen && (
+      <div className="Menu">
+        <button onClick={() => { compile("docker"); setCompileMenuOpen(false); }}> Docker</button>
+      </div>
+    )}
+    </div>
     <button onClick={loadDemoEnvironment}>Load Demo</button>
-
     </div>
      <div className="Toolbar">
         {/* so each tap gets its own tab */}
@@ -494,15 +489,18 @@ return (
         ))}
       </div>
     <div className="Main">
-
         <div className="Sidebar">
         Blocks
       {/*This will render a list of blocks in the sidebar,  react needs a key for each element in a list so we can track which elements have changed, been added or removed */}
         {blocks.map((block) => (
-          <div key={block} className="Block" draggable onDragStart={(event) => {
-            event.dataTransfer.setData("application/reactflow", block); //this will set the data that we will use to identify which block is being dragged, we will use this data to add the correct node to the canvas when the block is dropped
-          }}>
-            {block}
+          <div key={block}
+          className="Block" 
+          style={{background: blockStyles[block].background, border: blockStyles[block].border }}
+            draggable
+            onDragStart={(event) => {
+              event.dataTransfer.setData("application/reactflow", block);
+            }}>
+           {blockStyles[block].icon} {block}
           </div>
         ))}
         </div>
@@ -521,11 +519,13 @@ return (
           const name = event.dataTransfer.getData("application/reactflow"); //this will get the data that we set when we started dragging the block, which is the name of the block
           const bounds = event.currentTarget.getBoundingClientRect();
           const position = { x: event.clientX - bounds.left, y:event.clientY - bounds.top };// need to calculate the position of the node based on the position of the mouse and the position of the canvas, because the position of the mouse is relative to the entire page, but we need the position of the node to be relative to the canvas
+          const s = blockStyles[name];
           const newNode = {//the new node that we will add to the canvas, it needs to have an id, a position and some data, we will use the name of the block as the label of the node
           id: crypto.randomUUID(),
           position, 
-          data:  { label: name, blockType: name, properties: { ...blockProperties[name] } }//start stating the block type to help determine the kind of connection we have 
-          };
+          data:  { label: makeLabel(name, ""), blockType: name, properties: { ...blockProperties[name] } },//start stating the block type to help determine the kind of connection we have 
+          style: { background: s.background, border: s.border, borderRadius: 8, padding: 10 },
+        };
           setActiveNodes((current) => [...current, newNode]);
         }}
         >
