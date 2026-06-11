@@ -89,6 +89,15 @@ def run(cmd, *, log_path = None, capture = False, check = True):
         raise RuntimeError(f"Command failed: {cmd}\nstdout: {result.stdout}\nstderr: {result.stderr}")
     return result
 
+def ensure_docker_ready(docker: str | None = None, log_path: Path | None = None) -> str:
+    # 1. point the CLI at the right daemon socket (sets DOCKER_HOST / DOCKER_CONFIG).
+    configure_docker_cli_environment()
+    # 2. resolve the docker binary if the caller didn't pass one.
+    docker = docker or docker_bin()
+    # 3. prove the daemon actually answers -- `docker info` fails (check=True) if not.
+    run([docker, "info"], log_path=log_path, capture=True)
+    return docker
+
 def run_dir(project: str, base: Path | None = None) -> Path:
     return (base or DEFAULT_RUNS_DIR) / project
 
