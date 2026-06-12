@@ -1,8 +1,8 @@
-
 import './App.css'
 import { ReactFlow, Background, Controls, applyNodeChanges , addEdge ,applyEdgeChanges} from '@xyflow/react' //so we can use the react flow components in our app like the canvas, background and controls
 import '@xyflow/react/dist/style.css'
 import { useState } from 'react'; //so we can manage the taps and switch between them 
+import HostNode from './parts/HostNode';
 //Buidling a simple UI for the app, with a tapbar, sidebar and main canves
 //This is just a placeholder for now, we will add more functionality later
 function App() {
@@ -15,23 +15,22 @@ const blockProperties = {
   Service: { name:"", Type: "", protocol: "", port: "", version: "" },
   Vulnerability: { Type: "", CVE: "", Description: "", severity: "" },
   Misconfiguration: { name: "", Description: "" },
-  Subnet: { name: "", CIDR: "" },// CIDER is a notation for describing IP address ranges
+  Subnet: { name: "", CIDR: "" },//CIDR is a notation for describing IP address ranges
   User:{name: "", password: "", privilege_level: ""},
   File:{name: "", path: "", sensitivity: ""}
 };
 const blockStyles = {
-  Host:            { background: "#0095ff", icon: "🖥️" },
-  Router:          { background: "#6b77be", icon: "📡" },
-  Service:         { background: "#0da319", icon: "⚙️" },
-  Vulnerability:   { background: "#960a1f", icon: "🐞" },
-  Misconfiguration:{ background: "#ffaf0f", icon: "⚠️" },
-  Subnet:          { background: "#2241e0", icon: "🌐" },
-  User:            { background: "#e0dd3c", icon: "👤" },
-  File:            { background: "#737572", icon: "📄" },
-  Agent:           { background: "#000000", icon: "🤖" },
-  Tool:            { background: "#000000", icon: "🔧" },
+  Host:            { background: "#70a6cd", icon: "🖥️" },
+  Router:          { background: "#5d658f",color: "#FFF", icon: "📡" },
+  Service:         { background: "#6ea673",color: "#FFF", icon: "⚙️" },
+  Vulnerability:   { background: "#ba3549",color: "#FFF", icon: "🐞" },
+  Misconfiguration:{ background: "#c99222", color: "#FFF", icon: "⚠️" },
+  Subnet:          { background: "#1b2b7a", color: "#FFF",icon: "🌐" },
+  User:            { background: "#c7c569", color: "#FFF",icon: "👤" },
+  File:            { background: "#737572",color: "#FFF", icon: "📄" },
+  Agent:           { background: "#000000", color: "#FFF",icon: "🤖" },
+  Tool:            { background: "#000000", color: "#FFF",icon: "🔧" },
 };
-
 //we need the first laod of the page to open an environment tap  so people acn drag and drop 
 const initialFile = { id: crypto.randomUUID(), name: "Env 1", type: "environment", nodes: [], edges: [] };
 const [panelPos, setPanelPos] = useState({ x: 320, y: 80 });
@@ -78,7 +77,6 @@ const closeFile = (id) => {
   setFiles((current) => current.filter((f) => f.id !== id));
   if (activeId === id) setActiveId(null);//delete the active file and set the active id to null if we closed the active file
 };
-
 const updateNodeProperty = (nodeId, key, value) => {
   setActiveNodes((nds) => nds.map((n) =>{
     if ( n.id !== nodeId) return n;
@@ -95,7 +93,6 @@ const updateNodeProperty = (nodeId, key, value) => {
     };
   }));
 };
-
 //need a button where we can delete a specific node 
 const deleteSelectedNode = () => {
   if (!selectedId) return;
@@ -109,10 +106,8 @@ const deleteSelectedNode = () => {
       edge.source !== selectedId && edge.target !== selectedId
     )
   );
-
   setSelectedId(null);
 };
-
 //THIS WILL NEED TO BE UPDATED IN THE FUTURE 
 const onConnect = (connection) => {
   const source = nodes.find((n) => n.id === connection.source);
@@ -131,45 +126,30 @@ const onConnect = (connection) => {
 //I NEED TO ADD A REVERSE RULE SO THE CONNECTIONS WORK NO MATER WHERE YOU START THE CONNCTION FROM 
 //WILL BE CHANGED 
 const connectionKind = (sourceType, targetType) => {
-  if (sourceType === "Service" && targetType === "Host")
+ if (sourceType === "Service" && targetType === "Host")
     return { status: "valid", type: "service" };
   if ((sourceType === "Vulnerability" || sourceType === "Misconfiguration") && targetType === "Service")
     return { status: "valid", type: "vulnerability" };
-  if (sourceType === "Host" && targetType === "Router")
-    return { status: "valid", type: "topology" };
   if (sourceType === "Router" && targetType === "Host")
     return { status: "valid", type: "topology" };
   if (sourceType === "Router" && targetType === "Router")
     return { status: "valid", type: "topology" };
-  if (sourceType === "Host" && targetType === "Host")
-    return { status: "ambiguous" };
-  if (sourceType === "Host" && targetType === "Subnet")
-    return { status: "valid", type: "topology" };
   if (sourceType === "Router" && targetType === "Subnet")
-    return { status: "valid", type: "topology" }; 
+    return { status: "valid", type: "topology" };
   if (sourceType === "Subnet" && targetType === "Router")
     return { status: "valid", type: "topology" };
   if (sourceType === "Subnet" && targetType === "Host")
     return { status: "valid", type: "topology" };
-  if (sourceType === "Router" && targetType === "Host")
-    return { status: "valid", type: "topology" };
-  if (sourceType === "Host" && targetType === "Service")
-    return { status: "valid", type: "service" };
   if (sourceType === "Service" && (targetType === "Vulnerability" || targetType === "Misconfiguration"))
     return { status: "valid", type: "vulnerability" };
   if (sourceType === "User" && targetType === "Host")
-  return { status: "valid", type: "account" }; 
-  if (sourceType === "Host" && targetType === "User")
     return { status: "valid", type: "account" };
   if (sourceType === "File" && targetType === "Host")
-    return { status: "valid", type: "storage" };  // file stored on host
-  if (sourceType === "Host" && targetType === "File")
     return { status: "valid", type: "storage" };
   if (sourceType === "User" && targetType === "File")
     return { status: "valid", type: "access" };
   if (sourceType === "File" && targetType === "User")
     return { status: "valid", type: "access" };
-
   return { status: "invalid", reason: `A ${sourceType} can't connect to a ${targetType}.` };
 };
 const makeLabel = (blockType, idValue) => {
@@ -245,7 +225,6 @@ const compileToDocker = (env) => {
   const hostsBySubnet = {};
   const Subnetcounts = {};
   //first find each subnet that has host inside it so we check the conntions we made in env that contain Host or Subnet 
-
     const subnetOfHost = (hostName) => {
     for (const c of env.connections) {
       if (c.fromType === "Host" && c.from === hostName && c.toType === "Subnet") return c.to;
@@ -253,10 +232,8 @@ const compileToDocker = (env) => {
     }
     return null;
   };
-
   //we assign hosts under subnets 
   env.subnets.forEach((s) => { hostsBySubnet[s.name] = []; });
-
   //for each host we need to assign it different IP
   for (const h of env.hosts) {
     const subnet = env.subnets.find((s) => s.name === subnetOfHost(h.name));
@@ -267,10 +244,8 @@ const compileToDocker = (env) => {
     Subnetcounts[subnet.name] = n + 1;
     hostsBySubnet[subnet.name].push({ name: h.name, image: h.image, ip: octets.join("."), ram: h.ram, disk: h.disk });
   }
-
   const subnets = env.subnets.map((s) => ({ name: s.name, cidr: s.cidr, hosts: hostsBySubnet[s.name] || [] }));
-
-// which subnets does a router touch?
+//which subnets does a router connect to 
   const networksOfRouter = (routerName) => {
     const result = [];
     for (const c of env.connections) {
@@ -280,16 +255,14 @@ const compileToDocker = (env) => {
     return result;
   };
   const routers = env.routers.map((r) => ({ name: r.name, image: r.image, networks: networksOfRouter(r.name) }));
-
-  // subnet_connections from Router↔Subnet
+  // subnet_connections from Router and Subnet connections 
   const subnetConnections = [];
   for (const c of env.connections) {
     const rs = c.fromType === "Router" && c.toType === "Subnet";
     const sr = c.fromType === "Subnet" && c.toType === "Router";
     if (rs || sr) subnetConnections.push({ router: rs ? c.from : c.to, from_subnet: rs ? c.to : c.from, to_subnet: null, bidirectional: true });
   }
-
-  // remaining connections (drop the topology ones docker captures elsewhere)
+  // All the connections except the ones we have listed before 
   const connections = [];
   for (const c of env.connections) {
     const topoPair = (c.fromType === "Subnet" || c.fromType === "Router") && (c.toType === "Subnet" || c.toType === "Router");
@@ -314,11 +287,10 @@ const compileToDocker = (env) => {
 };
 
 
-//To have the ability to compile to differnt stuff 
+//To have the ability to compile to differnt structures in the future 
 const targets = {
   docker: compileToDocker,
 };
-
 const compile = (targetName) => {
   const env = buildEnv();              // flat envionment
   const target = targets[targetName];  // which compilation to choose 
@@ -328,67 +300,61 @@ const compile = (targetName) => {
   }
   target(env);                         
 };
-
-
+//Just an example of an environmet to test compilation faster 
 const loadDemoEnvironment = () => {
+const s = blockStyles; 
+  const box = (type) => ({ background: s[type].background, color: s[type].color });
   const demoNodes = [
-    // Subnets
-    { id: "subnet-1", data: { label: "network: DMZ", blockType: "Subnet", properties: { name: "dmz", CIDR: "172.20.0.0/24" } }, position: { x: 100, y: 50 } },
-    { id: "subnet-2", data: { label: "network: Internal", blockType: "Subnet", properties: { name: "internal", CIDR: "10.0.0.0/24" } }, position: { x: 400, y: 50 } },
-    
-    // Hosts
-    { id: "host-1", data: { label: "host: web-server", blockType: "Host", properties: { name: "web-server", image: "nginx:latest", RAM: "512m", disk: "1g" } }, position: { x: 50, y: 200 } },
-    { id: "host-2", data: { label: "host: db-server", blockType: "Host", properties: { name: "db-server", image: "mysql:8", RAM: "1g", disk: "2g" } }, position: { x: 350, y: 200 } },
-    { id: "host-3", data: { label: "host: jump-host", blockType: "Host", properties: { name: "jump-host", image: "ubuntu:22.04", RAM: "512m", disk: "1g" } }, position: { x: 650, y: 200 } },
-    
-    // Services
-    { id: "svc-1", data: { label: "service: http-web", blockType: "Service", properties: { name: "http-web", Type: "web", protocol: "tcp", port: "80", version: "nginx-1.24" } }, position: { x: 50, y: 350 } },
-    { id: "svc-2", data: { label: "service: mysql-db", blockType: "Service", properties: { name: "mysql-db", Type: "database", protocol: "tcp", port: "3306", version: "mysql-8.0" } }, position: { x: 350, y: 350 } },
-    
-    // Vulnerability
-    { id: "vuln-1", data: { label: "Vuln: sql-injection", blockType: "Vulnerability", properties: { Type: "sql-injection", CVE: "CVE-2024-12345", Description: "SQL injection in login form", severity: "High" } }, position: { x: 50, y: 450 } },
-    
-    // Users
-    { id: "user-1", data: { label: "user: admin", blockType: "User", properties: { name: "admin", password: "admin123", privilege_level: "admin" } }, position: { x: 200, y: 500 } },
-    { id: "user-2", data: { label: "user: john", blockType: "User", properties: { name: "john", password: "john123", privilege_level: "user" } }, position: { x: 500, y: 500 } },
-    
-    // Files
-    { id: "file-1", data: { label: "file: config.json", blockType: "File", properties: { name: "config.json", path: "/etc/config.json", sensitivity: "confidential" } }, position: { x: 200, y: 600 } },
-    { id: "file-2", data: { label: "file: secrets.txt", blockType: "File", properties: { name: "secrets.txt", path: "/home/admin/secrets.txt", sensitivity: "critical" } }, position: { x: 500, y: 600 } },
-    
-    // Router
-    { id: "router-1", data: { label: "router: core-router", blockType: "Router", properties: { name: "core-router", image: "router-vm:latest" } }, position: { x: 400, y: 100 } },
+    // --- Subnets ---
+    { id: "subnet-A", type: "Subnet", position: { x: 80, y: 40 }, style: box("Subnet"),
+      data: { label: makeLabel("Subnet", "A"), blockType: "Subnet", properties: { name: "A", CIDR: "172.20.0.0/24" } } },
+    { id: "subnet-B", type: "Subnet", position: { x: 520, y: 40 }, style: box("Subnet"),
+      data: { label: makeLabel("Subnet", "B"), blockType: "Subnet", properties: { name: "B", CIDR: "172.21.0.0/24" } } },
+    { id: "subnet-C", type: "Subnet", position: { x: 980, y: 40 }, style: box("Subnet"),
+      data: { label: makeLabel("Subnet", "C"), blockType: "Subnet", properties: { name: "C", CIDR: "172.22.0.0/24" } } },
+    // --- Routers ---
+    { id: "router-1", type: "Router", position: { x: 300, y: 40 }, style: box("Router"),
+      data: { label: makeLabel("Router", "router-1"), blockType: "Router", properties: { name: "router-1", image: "frrouting/frr:latest" } } },
+    { id: "router-2", type: "Router", position: { x: 760, y: 40 }, style: box("Router"),
+      data: { label: makeLabel("Router", "router-2"), blockType: "Router", properties: { name: "router-2", image: "frrouting/frr:latest" } } },
+    // --- Hosts ---
+    { id: "host-a1", type: "Host", position: { x: 80, y: 220 },
+      data: { label: makeLabel("Host", "entry-host"), blockType: "Host", properties: { name: "entry-host", image: "ubuntu:22.04", RAM: "512m", disk: "1g" } } },
+    { id: "host-b1", type: "Host", position: { x: 440, y: 220 },
+      data: { label: makeLabel("Host", "app-server"), blockType: "Host", properties: { name: "app-server", image: "ubuntu:22.04", RAM: "512m", disk: "1g" } } },
+    { id: "host-b2", type: "Host", position: { x: 640, y: 220 },
+      data: { label: makeLabel("Host", "worker"), blockType: "Host", properties: { name: "worker", image: "ubuntu:22.04", RAM: "512m", disk: "1g" } } },
+    { id: "host-c1", type: "Host", position: { x: 980, y: 220 },
+      data: { label: makeLabel("Host", "file-host"), blockType: "Host", properties: { name: "file-host", image: "ubuntu:22.04", RAM: "512m", disk: "1g" } } },
+    // --- Service + its vulnerability ---
+    { id: "svc-apache", type: "Service", position: { x: 380, y: 400 }, style: box("Service"),
+      data: { label: makeLabel("Service", "apache2"), blockType: "Service", properties: { name: "apache-web", Type: "apache2", protocol: "tcp", port: "80", version: "2.4.49" } } },
+    { id: "vuln-1", type: "Vulnerability", position: { x: 380, y: 540 }, style: box("Vulnerability"),
+      data: { label: makeLabel("Vulnerability", "path-traversal"), blockType: "Vulnerability", properties: { Type: "path-traversal", CVE: "CVE-2021-41773", Description: "Apache 2.4.49 path traversal / RCE", severity: "High" } } },
+    // --- Service + File ---
+    { id: "svc-ssh", type: "Service", position: { x: 900, y: 400 }, style: box("Service"),
+      data: { label: makeLabel("Service", "openssh-server"), blockType: "Service", properties: { name: "ssh-c", Type: "openssh-server", protocol: "tcp", port: "22", version: "8.9" } } },
+    { id: "file-marko", type: "File", position: { x: 1120, y: 400 }, style: box("File"),
+      data: { label: makeLabel("File", "Marko.txt"), blockType: "File", properties: { name: "Marko.txt", path: "/root/Marko.txt", sensitivity: "very secret" } } },
   ];
-
   const demoEdges = [
-    // Hosts to Subnets
-    { id: "h1-s1", source: "host-1", target: "subnet-1", data: { kind: "topology" } },
-    { id: "h2-s2", source: "host-2", target: "subnet-2", data: { kind: "topology" } },
-    { id: "h3-s2", source: "host-3", target: "subnet-2", data: { kind: "topology" } },
-    
-    // Router to Subnets
-    { id: "r-s1", source: "router-1", target: "subnet-1", data: { kind: "topology" } },
-    { id: "r-s2", source: "router-1", target: "subnet-2", data: { kind: "topology" } },
-    
-    // Services to Hosts
-    { id: "svc1-h1", source: "svc-1", target: "host-1" },
-    { id: "svc2-h2", source: "svc-2", target: "host-2" },
-    
-    // Vulnerability to Service
-    { id: "vuln-svc", source: "vuln-1", target: "svc-1" },
-    
-    // Users to Hosts
-    { id: "u1-h1", source: "user-1", target: "host-1", data: { kind: "account" } },
-    { id: "u2-h2", source: "user-2", target: "host-2", data: { kind: "account" } },
-    
-    // Files to Hosts
-    { id: "f1-h1", source: "file-1", target: "host-1", data: { kind: "storage" } },
-    { id: "f2-h2", source: "file-2", target: "host-2", data: { kind: "storage" } },
-    
-    // Host to Host (attack chain)
-    { id: "h1-h2", source: "host-1", target: "host-3", data: { kind: "access" } },
+    // Each host sits in its subnet
+    { id: "a-h1",  source: "subnet-A", target: "host-a1", targetHandle: "host-subnet", data: { kind: "topology" } },
+    { id: "b-h1",  source: "subnet-B", target: "host-b1", targetHandle: "host-subnet", data: { kind: "topology" } },
+    { id: "b-h2",  source: "subnet-B", target: "host-b2", targetHandle: "host-subnet", data: { kind: "topology" } },
+    { id: "c-h1",  source: "subnet-C", target: "host-c1", targetHandle: "host-subnet", data: { kind: "topology" } },
+    // Routers connects the subnets
+    { id: "r1-a", source: "router-1", target: "subnet-A", data: { kind: "topology" } },
+    { id: "r1-b", source: "router-1", target: "subnet-B", data: { kind: "topology" } },
+    { id: "r2-b", source: "router-2", target: "subnet-B", data: { kind: "topology" } },
+    { id: "r2-c", source: "router-2", target: "subnet-C", data: { kind: "topology" } },
+    //Services and their vuln 
+    { id: "svcA-h", source: "svc-apache", target: "host-b1", targetHandle: "host-service", data: { kind: "service" } },
+    { id: "vuln-svc", source: "vuln-1", target: "svc-apache", data: { kind: "vulnerability" } },
+    //Service and a file on teh same host 
+    { id: "svcS-h", source: "svc-ssh", target: "host-c1", targetHandle: "host-service", data: { kind: "service" } },
+    { id: "file-h", source: "file-marko", target: "host-c1", targetHandle: "host-file", data: { kind: "storage" } },
   ];
-
   setActiveNodes(() => demoNodes);
   setActiveEdges(() => demoEdges);
 };
@@ -471,6 +437,7 @@ return (
     <button onClick={exportEnv}>Export Environment </button>
     <div style={{ position: "relative", display: "inline-block" }}>
     <button onClick={() => setCompileMenuOpen(!compileMenuOpen)}>Compile ▾</button>
+
     {compileMenuOpen && (
       <div className="Menu">
         <button onClick={() => { compile("docker"); setCompileMenuOpen(false); }}> Docker</button>
@@ -480,7 +447,7 @@ return (
     <button onClick={loadDemoEnvironment}>Load Demo</button>
     </div>
      <div className="Toolbar">
-        {/* so each tap gets its own tab */}
+        {/* so each tap gets its own canves */}
         {files.map((file) => (
         <div key={file.id} className="Tab">
         <button onClick={() => setActiveId(file.id)}>{file.name}</button>
@@ -510,6 +477,29 @@ return (
         <ReactFlow nodes={nodes}  
         onNodesChange={(changes) => setActiveNodes((nds) => applyNodeChanges(changes, nds))} 
         edges={edges}
+        nodeTypes={{Host: HostNode}}
+        defaultEdgeOptions={{type: 'step'}}
+        isValidConnection={(connection)=> {
+        const sourceNode = nodes.find((n) => n.id === connection.source);
+
+        // Each named handle only accepts one block type
+        const handleAccepts = {
+          "host-subnet":  "Subnet",
+          "host-service": "Service",
+          "host-router":  "Router",
+          "host-file":    "File",
+          "host-user":    "User",
+        };
+
+        if (connection.targetHandle && handleAccepts[connection.targetHandle]) {
+          return sourceNode?.data.blockType === handleAccepts[connection.targetHandle];
+        }
+
+        // Everything else (Vulnerability→Service, Router→Subnet, etc.) passes through here.
+        // onConnect → connectionKind handles validation for those.
+        return true;  
+        }}
+      
         onEdgesChange={(changes) => setActiveEdges((eds) => applyEdgeChanges(changes, eds))}
         onConnect={onConnect}
         onNodeClick={(event, node) => setSelectedId(node.id)}
@@ -522,9 +512,12 @@ return (
           const s = blockStyles[name];
           const newNode = {//the new node that we will add to the canvas, it needs to have an id, a position and some data, we will use the name of the block as the label of the node
           id: crypto.randomUUID(),
+          type:name,
           position, 
           data:  { label: makeLabel(name, ""), blockType: name, properties: { ...blockProperties[name] } },//start stating the block type to help determine the kind of connection we have 
-          style: { background: s.background, border: s.border, borderRadius: 8, padding: 10 },
+          //style: { background: s.background, border: s.border, borderRadius: 8, padding: 10 },
+          ...(name !== "Host" && { style: { background: s.background, color: "#FFF"} }),
+
         };
           setActiveNodes((current) => [...current, newNode]);
         }}

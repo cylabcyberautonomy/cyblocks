@@ -42,7 +42,9 @@ flex-direction: row;
   padding: 8px 5px;
   margin: 8px;
   background: #525252;
+  text-align: center;
   border-radius: 6px;
+  text-decoration: #f7f4f4;
   cursor: grab;
 }
 .Toolbar{
@@ -110,7 +112,7 @@ flex-direction: row;
   height: 320px;
   min-width: 200px;
   min-height: 150px;
-  resize: both;        /* the browser gives you a resize grip in the corner — free! */
+  resize: both;        
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -127,7 +129,7 @@ flex-direction: row;
   padding: 6px 8px;
   background: #3a3a3a;
   cursor: move;
-  user-select: none;   /* don't highlight text while dragging */
+  user-select: none;   
 }
 .InspectorHeader button {
   background: none; border: none; color: #fff; cursor: pointer;
