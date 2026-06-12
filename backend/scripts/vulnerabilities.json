@@ -1,0 +1,36 @@
+{
+  "vulnerabilities": [
+    {
+      "name": "apache-struts-cve-2017-5638",
+      "cve": "CVE-2017-5638",
+      "severity": "critical",
+      "description": "Apache Struts2 Jakarta Multipart parser RCE (CVE-2017-5638) -- the Equifax web foothold. Host image should be a Tomcat/JRE base (e.g. tomcat:8-jre8) for the app to serve.",
+      "lines": [
+        "# CVE-2017-5638 -- Apache Struts2 Jakarta Multipart parser RCE (Equifax initial foothold).",
+        "RUN (apt-get update && apt-get install -y wget) \\",
+        " || (apk add --no-cache wget) \\",
+        " || (yum install -y wget)",
+        "RUN mkdir -p /usr/local/tomcat/webapps \\",
+        " && wget -q -O /usr/local/tomcat/webapps/struts2-showcase.war https://repo1.maven.org/maven2/org/apache/struts/struts2-showcase/2.3.30/struts2-showcase-2.3.30.war",
+        "EXPOSE 8080"
+      ]
+    },
+    {
+      "name": "weak-ssh-credentials",
+      "cve": "",
+      "severity": "high",
+      "description": "SSH with root login and a weak/reused password -- the Equifax lateral-movement vector.",
+      "lines": [
+        "# Weak/reused SSH credentials -- the lateral-movement vector after the Struts RCE (Equifax).",
+        "RUN (apt-get update && apt-get install -y openssh-server) \\",
+        " || (apk add --no-cache openssh openssh-server) \\",
+        " || (yum install -y openssh-server)",
+        "RUN echo 'root:equifax' | chpasswd \\",
+        " && mkdir -p /etc/ssh \\",
+        " && sed -i 's/.*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config \\",
+        " && sed -i 's/.*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config",
+        "EXPOSE 22"
+      ]
+    }
+  ]
+}

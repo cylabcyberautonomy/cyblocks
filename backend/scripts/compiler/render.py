@@ -1,4 +1,5 @@
 from compiler.types import Payloads
+import vulnerability_library
 
 
 def render_host_docker(image: str, payloads_for_host: Payloads, routed: bool = False) -> str:
@@ -21,10 +22,12 @@ def render_host_docker(image: str, payloads_for_host: Payloads, routed: bool = F
         if service.get("port"):
             dockerfile += f"EXPOSE {service['port']}\n"
 
-    # Step 3: vulnerabilities -> marker file under /etc/cyblocks (cve if present, else name).
+    # Step 3: vulnerabilities -> query the library for the real recipe (Dockerfile lines that stand
+    #   up the vuln + a marker file). Unknown names fall back to a marker file only (see
+    #   vulnerability_library.render_for_host), so an unrecognized vuln never breaks the build.
     for vuln in payloads_for_host["vulnerabilities"]:
-        tag = vuln.get("cve") or vuln["name"]
-        dockerfile += f"RUN mkdir -p /etc/cyblocks && echo '{tag}' >> /etc/cyblocks/vulnerabilities\n"
+        for line in vulnerability_library.render_for_host(vuln):
+            dockerfile += line + "\n"
 
     # Step 4: misconfigurations -> marker file (description if present, else name).
     for misc in payloads_for_host["misconfigurations"]:
