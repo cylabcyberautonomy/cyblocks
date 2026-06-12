@@ -458,10 +458,10 @@ def render_host_docker(image: str, payloads_for_host: Payloads, routed: bool = F
     #         dockerfile += " || (yum install -y iproute2)\n"
     #   (Optional: factor the apt||apk||yum triple into a helper portable_install(pkg) -- it's now
     #    used for both services and iproute2.)
-        if routed:
-            dockerfile += "RUN (apt-get update && apt-get install -y iproute2) \\\n"
-            dockerfile += " || (apk add --no-cache iproute2) \\\n"
-            dockerfile += " || (yum install -y iproute2)\n"
+    if routed:
+        dockerfile += "RUN (apt-get update && apt-get install -y iproute2) \\\n"
+        dockerfile += " || (apk add --no-cache iproute2) \\\n"
+        dockerfile += " || (yum install -y iproute2)\n"
 
     # Step 5: done -- one string, already newline-terminated per line.
     return dockerfile
