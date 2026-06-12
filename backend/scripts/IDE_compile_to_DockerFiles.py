@@ -389,12 +389,12 @@ def build_compose(env: Env) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         "services": {},
     }
     dockerfile_list: list[dict[str, Any]] = []
-    dockerfile_list.append({"slug": slug, "type": "router", "image": router["image"]})
 
-    # 1) Routers first (reserve their per-subnet addresses; plain image services for now).
+    # 1) Routers first (reserve their per-subnet addresses; build context for the NAT entrypoint).
     for router in env.get("routers", []):
         slug, router_dict = build_router_service(env, router)
         compose_dict["services"][slug] = router_dict
+        dockerfile_list.append({"slug": slug, "type": "router", "image": router["image"]})
 
     # 2) Networks (gateway may be a router-reserved address).
     for network in build_networks(env):
