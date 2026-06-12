@@ -1,12 +1,17 @@
 # Cyblocks - Frontend deliverables   
 
-Description: A simple drag-and-drop IDE for designing agentic cybersecurity systems. Drag
-blocks from the sidebar onto the canvas, pan and zoom, and switch between
-Environment and Attacker modes from the File menu.
+Week 2 Progress Description: A simple drag-and-drop IDE for designing agentic cybersecurity systems. Drag
+blocks from the sidebar onto the canvas, pan and zoom, and switch between Environment and Attacker modes from the File menu.
 
 
 Week 3 Progress Descreption:
-Added editable properties to blocks and connection logic does allow for differnt type of connction --> Compilation is implmented + still experimenting with the JSON file structure
+**Block Properties and Connection logic**
+Added editable properties to blocks and connection logic does allow for differnt type of connction and prevent illiage connections like (service <-> router)
+
+**Compilation flow**
+The current flow of compilations is to build a flat environment list file that conatin all our blocks and connections on the canves and using that list to compile a file that works with a docker structure. 
+
+This compilation design choise allowes us to reuse the flat environment to compile to different target structure we migh want to add in the future.
 
 ## Built with 
 
