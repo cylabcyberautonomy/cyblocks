@@ -10,6 +10,7 @@ from compiler.hosts_routers import build_host_service, build_router_service
 from compiler.routes import build_routes
 from compiler.helpers import subnet_is_routed
 from compiler.write import write_artifact
+from dsl.compile_to_dsl import to_dsl
 
 
 # Build order: payloads -> routers -> networks -> hosts.
@@ -74,13 +75,15 @@ def build_compose(env: Env) -> tuple[dict[str, Any], list[dict[str, Any]]]:
 def run_compile(env_path: str | None = None):
     # Load the env JSON (arg path or a default), compile, print the build dir.
     #   path = Path(env_path) if env_path else (common.DEFAULT_RUNS_DIR / "env.json")
-    # The orchestrator coordinates: build_compose + build_routes, then hand the results to
-    # write_artifact (which is pure I/O and does NOT build anything itself).
+    # The orchestrator coordinates: load -> DSL -> build_compose + build_routes, then hand the
+    # results to write_artifact (pure I/O). to_dsl() turns the FLAT IDE export into the nested
+    # DSL (and passes through if the input is already a DSL).
     path = Path(env_path) if env_path else (common.DEFAULT_RUNS_DIR / "env.json")
-    env = common.load_json(path)
-    compose_dict, dockerfile_list = build_compose(env)
-    routes = build_routes(env)
-    build = write_artifact(env, compose_dict, dockerfile_list, routes)
+    raw = common.load_json(path)
+    dsl = to_dsl(raw)
+    compose_dict, dockerfile_list = build_compose(dsl)
+    routes = build_routes(dsl)
+    build = write_artifact(dsl, compose_dict, dockerfile_list, routes)
     print(build)
 
 

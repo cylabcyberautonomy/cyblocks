@@ -31,6 +31,8 @@ def write_artifact(
         shutil.rmtree(build)
     build.mkdir(parents=True)
 
+    # the DSL itself (the intermediary), persisted for inspection -- `env` here IS the DSL
+    common.write_json(build / "dsl.json", env)
     (build / "docker-compose.yaml").write_text(yaml.safe_dump(compose_dict, sort_keys=False))
     # routes for router-bridged subnets (default-gateway plan)
     common.write_json(build / "routes.json", {"routes": routes})

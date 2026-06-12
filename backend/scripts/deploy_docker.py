@@ -114,3 +114,14 @@ def deploy(environment: dict[str, Any], *, docker: str, project_override: str | 
 
     common.write_json(env_run_dir / "deployment.json", state)
     return state
+
+
+if __name__ == "__main__":
+    import json
+    import sys
+
+    if len(sys.argv) < 2:
+        raise SystemExit("usage: python3 deploy_docker.py <env.json>  (run the compile step first)")
+    env = common.load_json(Path(sys.argv[1]))
+    state = deploy(env, docker=common.docker_bin(), project_override=None)
+    print(json.dumps(state, indent=2))
