@@ -365,7 +365,7 @@ def build_router_service(env: Env, router: Router) -> tuple[str, dict[str, Any]]
     # Step 4: assemble. Exactly the compose runtime keys -- NO services/vulns/misconfigs.
     router_dict: dict[str, Any] = {
         "container_name": container_name,
-        "image": router["image"],
+        "build": f"./dockerfiles/{slug}",   # needs a Dockerfile to set sysctl net.ipv4.ip_forward=1 (can't do in compose)
         "cap_add": ["NET_ADMIN"],
         "sysctls": {"net.ipv4.ip_forward": "1"},
         "networks": networks,
@@ -389,6 +389,7 @@ def build_compose(env: Env) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         "services": {},
     }
     dockerfile_list: list[dict[str, Any]] = []
+    dockerfile_list.append({"slug": slug, "type": "router", "image": router["image"]})
 
     # 1) Routers first (reserve their per-subnet addresses; plain image services for now).
     for router in env.get("routers", []):
@@ -418,6 +419,33 @@ def build_compose(env: Env) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                     dockerfile_list.append({"slug": slug, "type": "host", "image": host["image"], "payloads": p, "routed": subnet_is_routed(env, subnet["name"])})
 
     return compose_dict, dockerfile_list
+
+def render_router_docker(image: str) -> str:
+    # FROM <image>
+    # RUN (apt-get update && apt-get install -y iptables) || (apk add --no-cache iptables) || (yum install -y iptables)
+    # COPY entrypoint.sh /entrypoint.sh
+    # RUN chmod +x /entrypoint.sh
+    # ENTRYPOINT ["/entrypoint.sh"]
+    dockerfile = f"FROM {image}\n"
+    dockerfile += "RUN (apt-get update && apt-get install -y iptables) \\\n"
+    dockerfile += " || (apk add --no-cache iptables) \\\n"
+    dockerfile += " || (yum install -y iptables)\n"
+    dockerfile += "COPY entrypoint.sh /entrypoint.sh\n"
+    dockerfile += "RUN chmod +x /entrypoint.sh\n"
+    dockerfile += "ENTRYPOINT [\"/entrypoint.sh\"]\n"
+    return dockerfile
+
+def render_router_entrypoint() -> str:
+    # #!/bin/sh
+    # sysctl -w net.ipv4.ip_forward=1
+    # iptables -t nat -A POSTROUTING -j MASQUERADE
+    # exec "$@"
+    entrypoint = "#!/bin/sh\n"
+    entrypoint += "sysctl -w net.ipv4.ip_forward=1\n"
+    entrypoint += "iptables -t nat -A POSTROUTING -j MASQUERADE\n"
+    entrypoint += "exec \"$@\"\n"
+    return entrypoint
+
 
 def render_host_docker(image: str, payloads_for_host: Payloads, routed: bool = False) -> str:
     # Returns the Dockerfile text for one host (called for hosts WITH payloads OR routed hosts).
@@ -493,6 +521,10 @@ def write_artifact(env: Env) -> Path:
             # iproute2 THREAD: pass the routed flag so the renderer installs iproute2 when needed.
             #   CHANGE -> render_host_docker(item["image"], item["payloads"], item["routed"])
             (node_dir / "Dockerfile").write_text(render_host_docker(item["image"], item["payloads"], item["routed"]))
+        elif item["type"] == "router":
+            (node_dir / "entrypoint.sh").write_text(render_router_entrypoint())
+            (node_dir / "Dockerfile").write_text(render_router_docker(item["image"]))
+
 
     
     return build
