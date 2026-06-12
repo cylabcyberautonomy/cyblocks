@@ -110,6 +110,21 @@ class Plan(TypedDict):
 
 # ---------------------------------------------------------------------------
 
+# module helpers for routing
+def reserved_router_ip(cidr: str) -> str:
+    # The router's pinned address on a subnet: LAST usable host (avoids Docker's .1 bridge).
+    return str(ipaddress.ip_network(cidr, strict=False)[-2])
+
+def subnet_cidr_map(env: Env) -> dict[str, str]:
+    # subnet name -> cidr, for every subnet that has one.
+    return {s["name"]: s["cidr"] for net in env["networks"] for s in net["subnets"] if s.get("cidr")}
+
+def subnet_is_routed(env: Env, subnet_name: str) -> bool:
+    # True if some router bridges this subnet -> its hosts need routes + NET_ADMIN.
+    return any(subnet_name in r.get("networks", []) for r in env.get("routers", []))
+
+
+# 
 def build_networks(env: Env) -> list[dict[str, Any]]:
     # Returns one {"key","cidr","gateway"} per subnet for build_compose's networks block.
     #
@@ -209,13 +224,23 @@ def build_host_service(env: Env, host: Host, subnet: Subnet, payloads_for_host: 
         "networks": {net_key: net_attach},
     }
 
-    # Step 4: HYBRID image-vs-build (exactly one). Payload -> build context, else stock image.
-    #   if has_payload: service_dict["build"] = f"./dockerfiles/{slug}"
-    #   else:           service_dict["image"] = host["image"]
+    if subnet_is_routed(env, subnet["name"]):
+        service_dict["cap_add"] = ["NET_ADMIN"]   # needed to run `ip route` in the host's namespace
+
+    # iproute2 THREAD: capture whether this host is routed (reuse the check above). A routed host
+    #   needs the `ip` binary, so it must BUILD (get a Dockerfile) even with NO payload.
+    #   routed = subnet_is_routed(env, subnet["name"])
+    routed = subnet_is_routed(env, subnet["name"])
+
+    # Step 4: HYBRID image-vs-build (exactly one). Payload OR routed -> build context, else image.
+    #   CHANGE the condition to `if has_payload or routed:` so routed-but-payloadless hosts also
+    #   get a Dockerfile (to install iproute2). It currently checks has_payload only.
+    #   if has_payload or routed: service_dict["build"] = f"./dockerfiles/{slug}"
+    #   else:                     service_dict["image"] = host["image"]
     ...
-    if has_payload: 
+    if has_payload or routed:
         service_dict["build"] = f"./dockerfiles/{slug}"
-    else:           
+    else:
         service_dict["image"] = host["image"]
 
     # Step 5: optional keys -- add only when the source value exists (omit, don't write null).
@@ -233,6 +258,76 @@ def build_host_service(env: Env, host: Host, subnet: Subnet, payloads_for_host: 
         service_dict["ports"] = ports
 
     return slug, service_dict
+
+def build_routes(env: Env) -> list[dict[str, Any]]:
+    # MODEL: default-gateway routing -- a host tries its own subnet first, else falls to the router.
+    #
+    # WHY each branch:
+    #   - SAME-subnet destination: Docker installs a "connected" route for the host's own subnet,
+    #     and L2 ARP resolves the peer directly on the shared bridge. The host "finds" it with no
+    #     help from us -> emit NO row for same-subnet traffic.
+    #   - OFF-subnet destination: nothing matches, so the kernel uses the DEFAULT route. We point
+    #     that default at the router's pinned IP on the host's OWN subnet. The router has
+    #     ip_forward=1 and an interface on every subnet it bridges, so it forwards the packet out
+    #     the right interface and ARPs the target there. ("the router broadcasts" = this forwarding.)
+    #
+    # OUTPUT: exactly ONE catch-all row per host (not one per destination subnet):
+    #   {"host": <docker container name>, "via": <router IP on the host's subnet>, "to": "default"}
+    #
+    # CONSISTENCY (must hold): `via` MUST equal the address build_router_service pinned for this
+    #   router on this subnet -- both come from reserved_router_ip(cidr) (last usable host). If
+    #   they ever diverge, the host points its default at an IP the router doesn't hold and routing
+    #   silently dies. Always derive `via` from reserved_router_ip, never hardcode.
+    #
+    # EGRESS CAVEAT (decision to make): a real `default` route captures ALL non-local traffic,
+    #   including internet-bound. The router must then MASQUERADE/NAT for outbound or hosts lose
+    #   internet. Alternative that keeps Docker's egress on the bridge: set `to` to each OTHER
+    #   bridged-subnet cidr (the per-destination variant) instead of "default".
+    #
+    # MULTI-ROUTER EDGE: if two routers both bridge a host's subnet, emitting a default row per
+    #   router gives that host TWO conflicting defaults. Pick a tie-break (e.g. first router wins)
+    #   and DEDUP per container so each host gets at most one "default" row (use the `seen` set).
+    #
+    # DEPLOY CONTRACT: apply_routes sees to == "default" and runs
+    #   `ip route replace default via <via>` inside the host (vs `... <to> via <via>` for cidrs).
+    cidr_by_subnet = subnet_cidr_map(env)
+    routes: list[dict[str, Any]] = []
+    seen: set[str] = set()   # container names already given a default route (multi-router dedup)
+
+    for router in env.get("routers", []):
+        # Step 1: the subnets this router actually bridges. Filter on cidr_by_subnet so a router
+        #   that names an unknown / cidr-less subnet is skipped instead of raising KeyError later.
+        #   bridged = [n for n in router["networks"] if n in cidr_by_subnet]
+        bridged = [n for n in router["networks"] if n in cidr_by_subnet]
+
+        for subnet_name in bridged:
+            # Step 2: the default-gateway for hosts on THIS subnet = the router's reserved IP on
+            #   it (same L2 as those hosts, so they can ARP it). MUST match build_router_service.
+            #   via = reserved_router_ip(cidr_by_subnet[subnet_name])
+            via = reserved_router_ip(cidr_by_subnet[subnet_name])
+
+            # Step 3: locate the hosts ON subnet_name. Walk env["networks"][*]["subnets"], keep
+            #   only the subnet whose name == subnet_name, then iterate its hosts.
+            #   - host["ip"] is NOT required here -- a default route doesn't depend on the host's
+            #     own address (it only needs a reachable gateway). Don't skip on missing ip.
+            #   - container = common.container_name_from_ide_dict(env, host["name"]).
+            #   - if container in seen: skip it (already has a default from an earlier router).
+            for host in next(s["hosts"] for n in env["networks"] for s in n["subnets"] if s["name"] == subnet_name):
+                container = common.container_name_from_ide_dict(env, host["name"])
+                if container in seen:
+                    continue
+
+                
+
+            # Step 4: emit one default row per host and record it:
+            #   routes.append({"host": container, "via": via, "to": "default"})
+            #   seen.add(container)
+                routes.append({"host": container, "via": via, "to": "default"})
+                seen.add(container)
+            ...
+
+    return routes
+
 
 def build_router_service(env: Env, router: Router) -> tuple[str, dict[str, Any]]:
     # Returns (slug, service_dict). Runs FIRST (before networks + hosts) so the router can
@@ -254,8 +349,7 @@ def build_router_service(env: Env, router: Router) -> tuple[str, dict[str, Any]]
     # type carries no cidr/IP of its own). Walk env["networks"][*]["subnets"], skip cidr-less.
     #   cidr_by_subnet = {s["name"]: s["cidr"]
     #                     for net in env["networks"] for s in net["subnets"] if s.get("cidr")}
-    cidr_by_subnet: dict[str, str] = {s["name"]: s["cidr"] 
-                                      for net in env["networks"] for s in net["subnets"] if s.get("cidr")}
+    cidr_by_subnet: dict[str, str] = subnet_cidr_map(env)
 
     # Step 3: attach + reserve. For each subnet name in router["networks"]:
     #   - skip + warn if name not in cidr_by_subnet (router points at an unknown subnet).
@@ -265,7 +359,7 @@ def build_router_service(env: Env, router: Router) -> tuple[str, dict[str, Any]]
     networks: dict[str, Any] = {}
     for name in router.get("networks", []):
         net_key  = common.network_name_from_ide_dict(env, name)
-        reserved = str(ipaddress.ip_network(cidr_by_subnet[name], strict=False)[-2])
+        reserved = reserved_router_ip(cidr_by_subnet[name])
         networks[net_key] = {"ipv4_address": reserved}
 
     # Step 4: assemble. Exactly the compose runtime keys -- NO services/vulns/misconfigs.
@@ -315,15 +409,22 @@ def build_compose(env: Env) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 p = payloads[host["name"]]
                 slug, service_dict = build_host_service(env, host, subnet, p)
                 compose_dict["services"][slug] = service_dict
-                if any(p[k] for k in ("services", "vulnerabilities", "misconfigurations")):
-                    dockerfile_list.append({"slug": slug, "type": "host", "image": host["image"], "payloads": p})
+                # iproute2 THREAD: also emit a plan item for ROUTED hosts (they need a Dockerfile
+                #   to install iproute2 even with no payload), and TAG every item with "routed" so
+                #   render_host_docker knows whether to add the iproute2 install line.
+                #   CHANGE condition -> if any(...) or subnet_is_routed(env, subnet["name"]):
+                #   CHANGE item      -> add "routed": subnet_is_routed(env, subnet["name"])
+                if any(p[k] for k in ("services", "vulnerabilities", "misconfigurations")) or subnet_is_routed(env, subnet["name"]):
+                    dockerfile_list.append({"slug": slug, "type": "host", "image": host["image"], "payloads": p, "routed": subnet_is_routed(env, subnet["name"])})
 
     return compose_dict, dockerfile_list
 
-def render_host_docker(image: str, payloads_for_host: Payloads) -> str:
-    # Returns the Dockerfile text for one host (only called for hosts WITH payloads).
+def render_host_docker(image: str, payloads_for_host: Payloads, routed: bool = False) -> str:
+    # Returns the Dockerfile text for one host (called for hosts WITH payloads OR routed hosts).
     # service["name"] IS the package name; vulns/misconfigs become marker files. Values are
     # interpolated raw -- shell-injection hardening intentionally skipped for now.
+    # iproute2 THREAD: add a `routed: bool = False` param to the signature so write_artifact can
+    #   tell this renderer whether to install the `ip` tool (see Step 4b below).
 
     # Step 1: base image. Every line below appends to this string.
     dockerfile = f"FROM {image}\n"
@@ -348,6 +449,20 @@ def render_host_docker(image: str, payloads_for_host: Payloads) -> str:
         tag = misc.get("description") or misc["name"]
         dockerfile += f"RUN mkdir -p /etc/cyblocks && echo '{tag}' >> /etc/cyblocks/misconfigurations\n"
 
+    # Step 4b (iproute2 THREAD): when `routed`, install the `ip` binary so deploy's apply_routes
+    #   can run `docker exec ... ip route replace`. Append the SAME portable install you use for
+    #   services, with package "iproute2":
+    #     if routed:
+    #         dockerfile += "RUN (apt-get update && apt-get install -y iproute2) \\\n"
+    #         dockerfile += " || (apk add --no-cache iproute2) \\\n"
+    #         dockerfile += " || (yum install -y iproute2)\n"
+    #   (Optional: factor the apt||apk||yum triple into a helper portable_install(pkg) -- it's now
+    #    used for both services and iproute2.)
+        if routed:
+            dockerfile += "RUN (apt-get update && apt-get install -y iproute2) \\\n"
+            dockerfile += " || (apk add --no-cache iproute2) \\\n"
+            dockerfile += " || (yum install -y iproute2)\n"
+
     # Step 5: done -- one string, already newline-terminated per line.
     return dockerfile
 
@@ -368,11 +483,16 @@ def write_artifact(env: Env) -> Path:
     build.mkdir(parents=True)
 
     (build / "docker-compose.yaml").write_text(yaml.safe_dump(compose_dict, sort_keys=False))
+    # build routes for router-bridged subnets
+    common.write_json(build / "routes.json", {"routes": build_routes(env)})
+
     for item in dockerfile_list:
         node_dir = build / "dockerfiles" / item["slug"]
         node_dir.mkdir(parents=True, exist_ok=True)
         if item["type"] == "host":
-            (node_dir / "Dockerfile").write_text(render_host_docker(item["image"], item["payloads"]))
+            # iproute2 THREAD: pass the routed flag so the renderer installs iproute2 when needed.
+            #   CHANGE -> render_host_docker(item["image"], item["payloads"], item["routed"])
+            (node_dir / "Dockerfile").write_text(render_host_docker(item["image"], item["payloads"], item["routed"]))
 
     
     return build
