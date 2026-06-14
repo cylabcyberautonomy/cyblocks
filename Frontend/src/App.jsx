@@ -285,8 +285,6 @@ const compileToDocker = (env) => {
   };
   downloadJSON(`${env.name}-docker.json`, dockerEnv);
 };
-
-
 //To have the ability to compile to differnt structures in the future 
 const targets = {
   docker: compileToDocker,
@@ -300,6 +298,30 @@ const compile = (targetName) => {
   }
   target(env);                         
 };
+
+//  This function is called by our button to facilate the debloying and compiling to docker (connecting the frontend with the backend)
+const runEnvironment = async () => {
+  const env = buildEnv();  
+  try {
+    const res = await fetch("http://127.0.0.1:8000/deploy", {//HTTP request to URL and wait for the backend to reply ( it waits for the whole deploying to finish)
+      method: "POST",
+      headers: { "Content-Type": "application/json" },//type of the file we are sending 
+      body: JSON.stringify(env)
+    });
+    const data = await res.json();//the respons we get back from the backend 
+    if (!res.ok) {
+      alert("Deploying failed: " + (data.error || res.status));
+      console.error(data.traceback);
+      return;
+    }
+    alert("Deployed: " + data.project);
+    console.log("deployment state:", data);
+  } catch (err) {//catching the other failure where res was not event produced 
+    alert("Could not reach backend at :8000 — is backend running?");
+    console.error(err);
+  }
+};
+
 //Just an example of an environmet to test compilation faster 
 const loadDemoEnvironment = () => {
 const s = blockStyles; 
@@ -319,7 +341,7 @@ const s = blockStyles;
       data: { label: makeLabel("Router", "router-2"), blockType: "Router", properties: { name: "router-2", image: "frrouting/frr:latest" } } },
     // --- Hosts ---
     { id: "host-a1", type: "Host", position: { x: 80, y: 220 },
-      data: { label: makeLabel("Host", "entry-host"), blockType: "Host", properties: { name: "entry-host", image: "ubuntu:22.04", RAM: "512m", disk: "1g" } } },
+      data: { label: makeLabel("Host", "entry-host"), blockType: "Host", properties: { name: "app-server", image: "tomcat:8-jre8", RAM: "512m", disk: "1g" } } },
     { id: "host-b1", type: "Host", position: { x: 440, y: 220 },
       data: { label: makeLabel("Host", "app-server"), blockType: "Host", properties: { name: "app-server", image: "ubuntu:22.04", RAM: "512m", disk: "1g" } } },
     { id: "host-b2", type: "Host", position: { x: 640, y: 220 },
@@ -330,7 +352,7 @@ const s = blockStyles;
     { id: "svc-apache", type: "Service", position: { x: 380, y: 400 }, style: box("Service"),
       data: { label: makeLabel("Service", "apache2"), blockType: "Service", properties: { name: "apache-web", Type: "apache2", protocol: "tcp", port: "80", version: "2.4.49" } } },
     { id: "vuln-1", type: "Vulnerability", position: { x: 380, y: 540 }, style: box("Vulnerability"),
-      data: { label: makeLabel("Vulnerability", "path-traversal"), blockType: "Vulnerability", properties: { Type: "path-traversal", CVE: "CVE-2021-41773", Description: "Apache 2.4.49 path traversal / RCE", severity: "High" } } },
+      data: { label: makeLabel("Vulnerability", "path-apache-struts-cve-2017-5638"), blockType: "Vulnerability", properties: { Type: "apache-struts-cve-2017-5638", CVE: "CVE-2017-5638", Description: "Struts2 RCE", severity: "Critical" } } },
     // --- Service + File ---
     { id: "svc-ssh", type: "Service", position: { x: 900, y: 400 }, style: box("Service"),
       data: { label: makeLabel("Service", "openssh-server"), blockType: "Service", properties: { name: "ssh-c", Type: "openssh-server", protocol: "tcp", port: "22", version: "8.9" } } },
@@ -437,13 +459,14 @@ return (
     <button onClick={exportEnv}>Export Environment </button>
     <div style={{ position: "relative", display: "inline-block" }}>
     <button onClick={() => setCompileMenuOpen(!compileMenuOpen)}>Compile ▾</button>
-
     {compileMenuOpen && (
       <div className="Menu">
         <button onClick={() => { compile("docker"); setCompileMenuOpen(false); }}> Docker</button>
       </div>
     )}
     </div>
+    <button onClick={runEnvironment}>Run Environment</button>
+
     <button onClick={loadDemoEnvironment}>Load Demo</button>
     </div>
      <div className="Toolbar">
@@ -495,11 +518,9 @@ return (
           return sourceNode?.data.blockType === handleAccepts[connection.targetHandle];
         }
 
-        // Everything else (Vulnerability→Service, Router→Subnet, etc.) passes through here.
-        // onConnect → connectionKind handles validation for those.
+        // Everything elsepasses through connectionKind  which handles validation for them 
         return true;  
         }}
-      
         onEdgesChange={(changes) => setActiveEdges((eds) => applyEdgeChanges(changes, eds))}
         onConnect={onConnect}
         onNodeClick={(event, node) => setSelectedId(node.id)}
