@@ -20,6 +20,23 @@ def _needs_keepalive(image: str) -> bool:
     return base in _BARE_OS_IMAGES
 
 
+def _service_start_cmds(payloads_for_host: Payloads) -> list[str]:
+    # Installed packages don't run themselves -- a bare-OS host with openssh-server installed has no
+    # sshd listening until something starts it. Map the host's bound services/vulns to start commands
+    # so the vuln is actually LIVE (exploitable), not just present on disk. Best-effort (|| true) so
+    # a missing tool never crashes container start.
+    names = {s.get("name", "") for s in payloads_for_host["services"]}
+    names |= {v.get("name", "") for v in payloads_for_host["vulnerabilities"]}
+    cmds: list[str] = []
+    if names & {"openssh-server", "ssh", "weak-ssh-credentials"}:
+        cmds.append("ssh-keygen -A >/dev/null 2>&1 || true")          # generate host keys (first boot)
+        cmds.append("mkdir -p /run/sshd >/dev/null 2>&1 || true")     # sshd needs this dir
+        cmds.append("(/usr/sbin/sshd 2>/dev/null || service ssh start >/dev/null 2>&1) || true")
+    if names & {"apache2", "apache", "httpd"}:
+        cmds.append("(service apache2 start 2>/dev/null || apache2ctl start 2>/dev/null) || true")
+    return cmds
+
+
 def build_host_service(env: Env, host: Host, subnet: Subnet, payloads_for_host: Payloads) -> tuple[str, dict[str, Any]]:
     # Returns (slug, service_dict). Runs LAST (after routers + networks): the host's
     # ipv4_address must not collide with the address the router reserved on this subnet.
@@ -66,10 +83,16 @@ def build_host_service(env: Env, host: Host, subnet: Subnet, payloads_for_host: 
     if host.get("ram"):
         service_dict["mem_limit"] = host["ram"]
 
-    # Step 5b: keep-alive for bare-OS images so the container persists (and routing can exec into
-    #   it). Daemon images keep their own CMD. tail -f /dev/null is portable across debian/alpine.
+    # Step 5b: command for BARE-OS images only (daemon images like tomcat/nginx keep their own CMD
+    #   so their service keeps serving). If the host has startable services, start them then keep the
+    #   container alive; otherwise just keep-alive. tail -f /dev/null is portable across debian/alpine.
     if _needs_keepalive(host["image"]):
-        service_dict["command"] = ["tail", "-f", "/dev/null"]
+        start_cmds = _service_start_cmds(payloads_for_host)
+        if start_cmds:
+            script = "; ".join(start_cmds) + "; exec tail -f /dev/null"
+            service_dict["command"] = ["/bin/sh", "-c", script]
+        else:
+            service_dict["command"] = ["tail", "-f", "/dev/null"]
 
     # Step 6: EXPOSE service ports to the range's internal networks ONLY -- do NOT publish to the
     #   host. Publishing ("<p>:<p>") binds the host port, which (a) collides when the host already

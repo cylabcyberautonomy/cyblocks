@@ -36,37 +36,38 @@ def build_routes(env: Env) -> list[dict[str, Any]]:
     #
     # DEPLOY CONTRACT: apply_routes sees to == "default" and runs
     #   `ip route replace default via <via>` inside the host (vs `... <to> via <via>` for cidrs).
+    # PER-DESTINATION routing (replaces the old single-default scheme). For a host on subnet S, for
+    # every OTHER subnet T, if a router bridges BOTH S and T, add a route to T's cidr via that
+    # router's pinned IP on S. This:
+    #   - supports MULTI-ROUTER chains (A--r1--B--r2--C): a host on B gets A via r1 AND C via r2.
+    #   - enables PIVOTING ("B as proxy") without inter-router routing -- A reaches B, B reaches C,
+    #     and an attacker hops through a B host to get from A to C. (A->C is intentionally NOT direct:
+    #     no single router bridges A and C, so there's no route -- the pivot is required.)
+    #   - keeps each host's DEFAULT route on the Docker bridge (.1) for internet egress, so no router
+    #     NAT is required for off-range traffic (unlike the old catch-all default).
+    # `to` is a cidr here, so apply_routes runs `ip route replace <cidr> via <via>`.
     cidr_by_subnet = subnet_cidr_map(env)
     routes: list[dict[str, Any]] = []
-    seen: set[str] = set()   # container names already given a default route (multi-router dedup)
 
-    for router in env.get("routers", []):
-        # Step 1: the subnets this router actually bridges. Filter on cidr_by_subnet so a router
-        #   that names an unknown / cidr-less subnet is skipped instead of raising KeyError later.
-        #   bridged = [n for n in router["networks"] if n in cidr_by_subnet]
-        bridged = [n for n in router["networks"] if n in cidr_by_subnet]
-
-        for subnet_name in bridged:
-            # Step 2: the default-gateway for hosts on THIS subnet = the router's pinned IP on it
-            #   (same L2 as those hosts, so they can ARP it). Uses router_ip_on_subnet so it matches
-            #   build_router_service exactly, even when several routers share the subnet (the seen
-            #   dedup below means the FIRST router that bridges the subnet wins each host).
-            via = router_ip_on_subnet(env, cidr_by_subnet[subnet_name], router["name"], subnet_name)
-
-            # Step 3: locate the hosts ON subnet_name. Walk env["networks"][*]["subnets"], keep
-            #   only the subnet whose name == subnet_name, then iterate its hosts.
-            #   - host["ip"] is NOT required here -- a default route doesn't depend on the host's
-            #     own address (it only needs a reachable gateway). Don't skip on missing ip.
-            #   - container = common.container_name_from_ide_dict(env, host["name"]).
-            #   - if container in seen: skip it (already has a default from an earlier router).
-            for host in next(s["hosts"] for n in env["networks"] for s in n["subnets"] if s["name"] == subnet_name):
+    for net in env["networks"]:
+        for subnet in net["subnets"]:
+            S = subnet["name"]
+            if S not in cidr_by_subnet:
+                continue
+            for host in subnet.get("hosts", []):
                 container = common.container_name_from_ide_dict(env, host["name"])
-                if container in seen:
-                    continue
-                # Step 4: emit one default row per host and record it:
-                #   routes.append({"host": container, "via": via, "to": "default"})
-                #   seen.add(container)
-                routes.append({"host": container, "via": via, "to": "default"})
-                seen.add(container)
+                for T, t_cidr in cidr_by_subnet.items():
+                    if T == S:
+                        continue
+                    # a router that bridges BOTH the host's subnet and the destination subnet.
+                    router = next(
+                        (r for r in env.get("routers", [])
+                         if S in r.get("networks", []) and T in r.get("networks", [])),
+                        None,
+                    )
+                    if router is None:
+                        continue   # no direct router S<->T (e.g. A<->C) -> reach it by pivoting
+                    via = router_ip_on_subnet(env, cidr_by_subnet[S], router["name"], S)
+                    routes.append({"host": container, "via": via, "to": t_cidr})
 
     return routes
