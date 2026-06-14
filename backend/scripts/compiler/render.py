@@ -1,3 +1,5 @@
+import posixpath
+
 from compiler.types import Payloads
 import vulnerability_library
 
@@ -47,6 +49,29 @@ def render_host_docker(image: str, payloads_for_host: Payloads, routed: bool = F
         dockerfile += "RUN (apt-get update && apt-get install -y iproute2) \\\n"
         dockerfile += " || (apk add --no-cache iproute2) \\\n"
         dockerfile += " || (yum install -y iproute2)\n"
+
+    # Step 6 (users/files milestone): realize accounts from payloads_for_host["users"].
+    #   For each user {name, password, privilege_level}:
+    #     - create the account WITH a home dir + shell,
+    #     - set the password only if one is given,
+    #     - elevate admins/root (sudo on debian, wheel on rhel/alpine -- same || fallback style).
+    #   NOTE: do users BEFORE files so a future `chown <user> <path>` has an account to point at.
+    for user in payloads_for_host["users"]:
+        dockerfile += f"RUN useradd -m -s /bin/bash {user['name']}\n"
+        if user.get("password"):
+            dockerfile += f"RUN echo '{user['name']}:{user['password']}' | chpasswd\n"
+        if user.get("privilege_level") in ("admin", "root"):
+            dockerfile += f"RUN usermod -aG sudo {user['name']} || usermod -aG wheel {user['name']}\n"
+
+    # Step 7 (users/files milestone): write files from payloads_for_host["files"].
+    #   The File block has NO contents field yet, so write a marker (sensitivity, else name) to path.
+    #   Ensure the parent dir exists first.
+    #   FUTURE: if a `contents` property is added to the File block (frontend + Service TypedDict),
+    #           write that instead of the marker.
+    for f in payloads_for_host["files"]:
+        parent = posixpath.dirname(f["path"]) or "/"
+        body = f.get("sensitivity") or f["name"]
+        dockerfile += f"RUN mkdir -p {parent} && echo '{body}' > {f['path']}\n"
 
     # Step 5: done -- one string, already newline-terminated per line.
     return dockerfile

@@ -81,6 +81,11 @@ class Payloads(TypedDict):
     services: list[Service]
     vulnerabilities: list[Vulnerability]
     misconfigurations: list[Misconfiguration]
+    # SCHEMA for the users/files milestone (binding + render are TODO, see payloads.py / render.py):
+    #   users bind User->Host (account edge); files bind File->Host (storage edge) -- both one hop,
+    #   directly to the host (no service in between like vulns have).
+    users: list[Any]   # each: {name, password, privilege_level}
+    files: list[Any]   # each: {name, path, sensitivity}  (no contents field yet -- see render.py)
 
 class Plan(TypedDict):
     slug: str
