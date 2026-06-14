@@ -17,9 +17,16 @@ def render_host_docker(image: str, payloads_for_host: Payloads, routed: bool = F
     # Step 2: services -> install layers (portable across debian/alpine/rhel), then EXPOSE.
     for service in payloads_for_host["services"]:
         pkg = service["name"]   # the PACKAGE name -- NOT the whole service dict
+        # Best-effort install: a service may be a LOGICAL anchor rather than an apt package -- e.g.
+        # a web app served by the base image (struts on a tomcat:* host) or a vuln that installs its
+        # own software. Those have no package by that name, so we end the chain with `|| true` and
+        # let the service act purely as an expose/vuln anchor instead of failing the whole build.
+        # Trade-off: a typo in a REAL package name installs nothing silently -- check the marker
+        # files / `docker logs` if a service you expected to install isn't running.
         dockerfile += f"RUN (apt-get update && apt-get install -y {pkg}) \\\n"
         dockerfile += f" || (apk add --no-cache {pkg}) \\\n"
-        dockerfile += f" || (yum install -y {pkg})\n"
+        dockerfile += f" || (yum install -y {pkg}) \\\n"
+        dockerfile += f" || true\n"
         # EXPOSE only when the service declares a port.
         if service.get("port"):
             dockerfile += f"EXPOSE {service['port']}\n"

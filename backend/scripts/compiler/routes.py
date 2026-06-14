@@ -1,8 +1,7 @@
 from typing import Any
 
-import common
 from compiler.types import Env
-from compiler.helpers import router_ip_on_subnet, subnet_cidr_map
+from compiler.helpers import host_container_name, router_ip_on_subnet, subnet_cidr_map
 
 
 def build_routes(env: Env) -> list[dict[str, Any]]:
@@ -55,7 +54,7 @@ def build_routes(env: Env) -> list[dict[str, Any]]:
             if S not in cidr_by_subnet:
                 continue
             for host in subnet.get("hosts", []):
-                container = common.container_name_from_ide_dict(env, host["name"])
+                container = host_container_name(env, host)   # uniquified, matches the compose container_name
                 for T, t_cidr in cidr_by_subnet.items():
                     if T == S:
                         continue

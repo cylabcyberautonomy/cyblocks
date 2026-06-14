@@ -370,23 +370,37 @@ const s = blockStyles;
       data: { label: makeLabel("Router", "router-1"), blockType: "Router", properties: { name: "router-1", image: "frrouting/frr:latest" } } },
     { id: "router-2", type: "Router", position: { x: 760, y: 40 }, style: box("Router"),
       data: { label: makeLabel("Router", "router-2"), blockType: "Router", properties: { name: "router-2", image: "frrouting/frr:latest" } } },
-    // --- Hosts ---
+    // --- Hosts: Equifax tiering. A = internet-facing perimeter (attacker origin), B = application
+    //     tier (the Struts app, reached through router-1), C = segregated data tier (the loot).
+    //     Names MUST be unique -- the name becomes the compose service slug.
+    // Subnet A: a perimeter/DMZ host. The attacker starts on this subnet and routes inward to the
+    // published app in Subnet B; this host itself exposes nothing vulnerable.
     { id: "host-a1", type: "Host", position: { x: 80, y: 220 },
-      data: { label: makeLabel("Host", "entry-host"), blockType: "Host", properties: { name: "app-server", image: "tomcat:8-jre8", RAM: "512m", disk: "1g" } } },
+      data: { label: makeLabel("Host", "dmz-host"), blockType: "Host", properties: { name: "dmz-host", image: "ubuntu:22.04", RAM: "512m", disk: "1g" } } },
+    // Subnet B holds two hosts (per the lab spec): the internet-facing app server -- Tomcat base so
+    // the Struts2 showcase WAR the vuln drops into /usr/local/tomcat/webapps is served on :8080
+    // (the live RCE foothold) -- plus "worker", a second internal host.
     { id: "host-b1", type: "Host", position: { x: 440, y: 220 },
-      data: { label: makeLabel("Host", "app-server"), blockType: "Host", properties: { name: "app-server", image: "ubuntu:22.04", RAM: "512m", disk: "1g" } } },
+      data: { label: makeLabel("Host", "app-server"), blockType: "Host", properties: { name: "app-server", image: "tomcat:8-jre8", RAM: "512m", disk: "1g" } } },
     { id: "host-b2", type: "Host", position: { x: 640, y: 220 },
       data: { label: makeLabel("Host", "worker"), blockType: "Host", properties: { name: "worker", image: "ubuntu:22.04", RAM: "512m", disk: "1g" } } },
-    { id: "host-c1", type: "Host", position: { x: 980, y: 220 },
+    // Subnet C: the segregated data tier -- the file host with the loot + a database host.
+    { id: "host-c1", type: "Host", position: { x: 900, y: 220 },
       data: { label: makeLabel("Host", "file-host"), blockType: "Host", properties: { name: "file-host", image: "ubuntu:22.04", RAM: "512m", disk: "1g" } } },
-    // --- Service + its vulnerability ---
-    { id: "svc-apache", type: "Service", position: { x: 380, y: 400 }, style: box("Service"),
-      data: { label: makeLabel("Service", "apache2"), blockType: "Service", properties: { name: "apache-web", Type: "apache2", protocol: "tcp", port: "80", version: "2.4.49" } } },
-    { id: "vuln-1", type: "Vulnerability", position: { x: 380, y: 540 }, style: box("Vulnerability"),
-      data: { label: makeLabel("Vulnerability", "path-apache-struts-cve-2017-5638"), blockType: "Vulnerability", properties: { Type: "apache-struts-cve-2017-5638", CVE: "CVE-2017-5638", Description: "Struts2 RCE", severity: "Critical" } } },
-    // --- Service + File ---
+    { id: "host-c2", type: "Host", position: { x: 1100, y: 220 },
+      data: { label: makeLabel("Host", "db-server"), blockType: "Host", properties: { name: "db-server", image: "ubuntu:22.04", RAM: "512m", disk: "1g" } } },
+    // --- Foothold: Struts2 web app on the Subnet-B app-server + its RCE vuln ---
+    // "struts-web" is a logical service anchor (the app is served by the Tomcat base image, not an
+    // apt package) -- it declares the exposed port and gives the vuln something to attach to.
+    { id: "svc-web", type: "Service", position: { x: 440, y: 400 }, style: box("Service"),
+      data: { label: makeLabel("Service", "struts-web"), blockType: "Service", properties: { name: "struts-web", Type: "struts-web", protocol: "tcp", port: "8080", version: "2.3.30" } } },
+    { id: "vuln-struts", type: "Vulnerability", position: { x: 440, y: 540 }, style: box("Vulnerability"),
+      data: { label: makeLabel("Vulnerability", "apache-struts-cve-2017-5638"), blockType: "Vulnerability", properties: { Type: "apache-struts-cve-2017-5638", CVE: "CVE-2017-5638", Description: "Struts2 RCE", severity: "Critical" } } },
+    // --- Lateral movement: SSH on the Subnet-C file-host, weak creds, and the loot file ---
     { id: "svc-ssh", type: "Service", position: { x: 900, y: 400 }, style: box("Service"),
       data: { label: makeLabel("Service", "openssh-server"), blockType: "Service", properties: { name: "ssh-c", Type: "openssh-server", protocol: "tcp", port: "22", version: "8.9" } } },
+    { id: "vuln-ssh", type: "Vulnerability", position: { x: 900, y: 540 }, style: box("Vulnerability"),
+      data: { label: makeLabel("Vulnerability", "weak-ssh-credentials"), blockType: "Vulnerability", properties: { Type: "weak-ssh-credentials", CVE: "", Description: "Weak/reused root SSH password", severity: "High" } } },
     { id: "file-marko", type: "File", position: { x: 1120, y: 400 }, style: box("File"),
       data: { label: makeLabel("File", "Marko.txt"), blockType: "File", properties: { name: "Marko.txt", path: "/root/Marko.txt", sensitivity: "very secret" } } },
   ];
@@ -396,17 +410,19 @@ const s = blockStyles;
     { id: "b-h1",  source: "subnet-B", target: "host-b1", targetHandle: "host-subnet", data: { kind: "topology" } },
     { id: "b-h2",  source: "subnet-B", target: "host-b2", targetHandle: "host-subnet", data: { kind: "topology" } },
     { id: "c-h1",  source: "subnet-C", target: "host-c1", targetHandle: "host-subnet", data: { kind: "topology" } },
-    // Routers connects the subnets
+    { id: "c-h2",  source: "subnet-C", target: "host-c2", targetHandle: "host-subnet", data: { kind: "topology" } },
+    // Routers connect the subnets (A <-> B via router-1, B <-> C via router-2)
     { id: "r1-a", source: "router-1", target: "subnet-A", data: { kind: "topology" } },
     { id: "r1-b", source: "router-1", target: "subnet-B", data: { kind: "topology" } },
     { id: "r2-b", source: "router-2", target: "subnet-B", data: { kind: "topology" } },
     { id: "r2-c", source: "router-2", target: "subnet-C", data: { kind: "topology" } },
-    //Services and their vuln 
-    { id: "svcA-h", source: "svc-apache", target: "host-b1", targetHandle: "host-service", data: { kind: "service" } },
-    { id: "vuln-svc", source: "vuln-1", target: "svc-apache", data: { kind: "vulnerability" } },
-    //Service and a file on teh same host 
-    { id: "svcS-h", source: "svc-ssh", target: "host-c1", targetHandle: "host-service", data: { kind: "service" } },
-    { id: "file-h", source: "file-marko", target: "host-c1", targetHandle: "host-file", data: { kind: "storage" } },
+    // Foothold: Struts web service on the Subnet-B app-server, with its RCE vuln attached
+    { id: "svcW-h",    source: "svc-web", target: "host-b1", targetHandle: "host-service", data: { kind: "service" } },
+    { id: "vulnW-svc", source: "vuln-struts", target: "svc-web", data: { kind: "vulnerability" } },
+    // Lateral movement: SSH service on the Subnet-C file-host, weak-creds vuln, and the loot file
+    { id: "svcS-h",    source: "svc-ssh", target: "host-c1", targetHandle: "host-service", data: { kind: "service" } },
+    { id: "vulnS-svc", source: "vuln-ssh", target: "svc-ssh", data: { kind: "vulnerability" } },
+    { id: "file-h",    source: "file-marko", target: "host-c1", targetHandle: "host-file", data: { kind: "storage" } },
   ];
   setActiveNodes(() => demoNodes);
   setActiveEdges(() => demoEdges);

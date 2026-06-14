@@ -1,8 +1,15 @@
 from typing import Any
 
 import common
+import vulnerability_library
 from compiler.types import Env, Host, Payloads, Router, Subnet
-from compiler.helpers import router_ip_on_subnet, subnet_cidr_map, subnet_is_routed
+from compiler.helpers import (
+    host_container_name,
+    host_slug,
+    router_ip_on_subnet,
+    subnet_cidr_map,
+    subnet_is_routed,
+)
 
 
 # Bare OS base images have no long-running process -- a container from them exits immediately, so
@@ -20,20 +27,54 @@ def _needs_keepalive(image: str) -> bool:
     return base in _BARE_OS_IMAGES
 
 
+# Built-in launch recipes for common service PACKAGES that have no vuln of their own to carry a
+# `start` recipe (e.g. a plain openssh-server or apache2 service with no attached vuln). Vulns bring
+# their own launch commands via the library (vulnerabilities.json "start"); this is the fallback for
+# bare services. Keyed by the service/vuln name; values are best-effort shell commands.
+_SERVICE_START_FALLBACK: dict[str, list[str]] = {
+    "openssh-server": [
+        "ssh-keygen -A >/dev/null 2>&1 || true",                       # generate host keys (first boot)
+        "mkdir -p /run/sshd >/dev/null 2>&1 || true",                  # sshd needs this dir
+        "(/usr/sbin/sshd 2>/dev/null || service ssh start >/dev/null 2>&1) || true",
+    ],
+    "ssh": [
+        "ssh-keygen -A >/dev/null 2>&1 || true",
+        "mkdir -p /run/sshd >/dev/null 2>&1 || true",
+        "(/usr/sbin/sshd 2>/dev/null || service ssh start >/dev/null 2>&1) || true",
+    ],
+    "apache2": ["(service apache2 start 2>/dev/null || apache2ctl start 2>/dev/null) || true"],
+    "apache":  ["(service apache2 start 2>/dev/null || apache2ctl start 2>/dev/null) || true"],
+    "httpd":   ["(service httpd start 2>/dev/null || apachectl start 2>/dev/null) || true"],
+}
+
+
 def _service_start_cmds(payloads_for_host: Payloads) -> list[str]:
     # Installed packages don't run themselves -- a bare-OS host with openssh-server installed has no
-    # sshd listening until something starts it. Map the host's bound services/vulns to start commands
-    # so the vuln is actually LIVE (exploitable), not just present on disk. Best-effort (|| true) so
-    # a missing tool never crashes container start.
-    names = {s.get("name", "") for s in payloads_for_host["services"]}
-    names |= {v.get("name", "") for v in payloads_for_host["vulnerabilities"]}
+    # sshd listening until something starts it. Turn the host's bound vulns/services into start
+    # commands so the vuln is actually LIVE (exploitable), not just present on disk.
+    #
+    # DATA-DRIVEN: each vuln declares its own launch recipe in vulnerabilities.json ("start"), so a
+    # NEW vuln becomes live without editing this file. Plain services with no vuln fall back to the
+    # built-in map above. Order is preserved and duplicates are dropped (a host with both an
+    # openssh-server service AND a weak-ssh-credentials vuln must only start sshd once).
     cmds: list[str] = []
-    if names & {"openssh-server", "ssh", "weak-ssh-credentials"}:
-        cmds.append("ssh-keygen -A >/dev/null 2>&1 || true")          # generate host keys (first boot)
-        cmds.append("mkdir -p /run/sshd >/dev/null 2>&1 || true")     # sshd needs this dir
-        cmds.append("(/usr/sbin/sshd 2>/dev/null || service ssh start >/dev/null 2>&1) || true")
-    if names & {"apache2", "apache", "httpd"}:
-        cmds.append("(service apache2 start 2>/dev/null || apache2ctl start 2>/dev/null) || true")
+    seen: set[str] = set()
+
+    def add(command: str) -> None:
+        if command not in seen:
+            seen.add(command)
+            cmds.append(command)
+
+    # 1) Vuln-supplied launch recipes (the generalizable path).
+    for vuln in payloads_for_host["vulnerabilities"]:
+        for command in vulnerability_library.start_cmds(vuln.get("name", "")):
+            add(command)
+
+    # 2) Fallback for plain service packages that need a daemon kicked off.
+    for service in payloads_for_host["services"]:
+        for command in _SERVICE_START_FALLBACK.get(service.get("name", ""), []):
+            add(command)
+
     return cmds
 
 
@@ -43,10 +84,11 @@ def build_host_service(env: Env, host: Host, subnet: Subnet, payloads_for_host: 
     # Payloads do NOT go in the compose dict -- they travel via the dockerfile plan.
 
     # Step 1: identity. slug = the compose service key + dockerfiles/<slug> folder name.
-    #   slug         = common.slugify(host["name"])
+    #   host_slug auto-disambiguates duplicate host names with a stable hash suffix (see helpers),
+    #   so two hosts that share a name deploy as distinct containers instead of clobbering.
     #   net_key      = common.network_name_from_ide_dict(env, subnet["name"])
     #   has_payload  = any payload bucket is non-empty
-    slug = common.slugify(host["name"])
+    slug = host_slug(env, host)
     net_key = common.network_name_from_ide_dict(env, subnet["name"])
     has_payload = any(payloads_for_host[k] for k in ("services", "vulnerabilities", "misconfigurations"))
 
@@ -56,7 +98,7 @@ def build_host_service(env: Env, host: Host, subnet: Subnet, payloads_for_host: 
 
     # Step 3: base dict -- the keys every host always has.
     service_dict: dict[str, Any] = {
-        "container_name": common.container_name_from_ide_dict(env, host["name"]),
+        "container_name": host_container_name(env, host),   # same uniquification as the slug + routes
         "networks": {net_key: net_attach},
     }
 

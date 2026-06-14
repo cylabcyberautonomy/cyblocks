@@ -1,6 +1,42 @@
+import hashlib
 import ipaddress
 
+import common
 from compiler.types import Env
+
+
+# ---------------------------------------------------------------------------
+# Host identity (slug + container name)
+# ---------------------------------------------------------------------------
+# The slug is BOTH the compose service key and the dockerfiles/<slug> folder, and the container name
+# is what routes.json / `docker exec` target. If two hosts share a name they'd slugify identically
+# and silently clobber each other on `up` (only the last survives). Rather than forbid duplicate
+# names, we auto-disambiguate: a name that is UNIQUE in the env keeps its friendly slug (app-server),
+# but a name REUSED by another host gets a short, stable hash suffix (app-server-3f2a1c). The hash is
+# seeded from the host's IP -- unique per host by construction -- so it is deterministic and every
+# compile pass (compose key, dockerfile folder, routes) computes the exact same value independently.
+def _host_name_counts(env: Env) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for net in env["networks"]:
+        for subnet in net["subnets"]:
+            for host in subnet.get("hosts", []):
+                counts[host["name"]] = counts.get(host["name"], 0) + 1
+    return counts
+
+
+def host_slug(env: Env, host: dict) -> str:
+    base = common.slugify(host["name"])
+    if _host_name_counts(env).get(host["name"], 0) <= 1:
+        return base                                   # unique name -> friendly slug, unchanged
+    seed = str(host.get("ip") or host.get("name"))    # IP is unique per host -> stable disambiguator
+    return f"{base}-{hashlib.sha1(seed.encode()).hexdigest()[:6]}"
+
+
+def host_container_name(env: Env, host: dict) -> str:
+    # The deterministic container name, sharing the same uniquification as host_slug so build_compose
+    # (which pins container_name) and build_routes (which targets it) never diverge.
+    return f"cyblocks_{common.project_name_from_ide_dict(env)}_{host_slug(env, host)}"
+
 
 # module helpers for routing
 def reserved_router_ip(cidr: str, index: int = 0) -> str:

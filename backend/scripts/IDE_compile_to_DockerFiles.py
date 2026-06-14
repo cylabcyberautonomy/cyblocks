@@ -62,6 +62,16 @@ def build_compose(env: Env) -> tuple[dict[str, Any], list[dict[str, Any]]]:
             for host in subnet.get("hosts", []):
                 p = payloads[host["name"]]
                 slug, service_dict = build_host_service(env, host, subnet, p)
+                # Duplicate host names are auto-disambiguated by host_slug (a stable hash suffix), so
+                # they no longer clobber -- the bug that quietly dropped the real Tomcat foothold.
+                # This backstop only fires if a slug STILL collides, i.e. two hosts share BOTH a name
+                # AND an IP (or a host collides with a router slug) -- a genuinely degenerate env.
+                if slug in compose_dict["services"]:
+                    raise ValueError(
+                        f"Service slug '{slug}' (host '{host['name']}') collides even after "
+                        f"disambiguation -- two hosts likely share the same name AND IP, or a host "
+                        f"and router share a name. Make them distinct."
+                    )
                 compose_dict["services"][slug] = service_dict
                 # iproute2 THREAD: also emit a plan item for ROUTED hosts (they need a Dockerfile
                 #   to install iproute2 even with no payload), and TAG every item with "routed" so
