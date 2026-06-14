@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import common
+import docker_boot
 
 def apply_routes(docker: str, project: str, log: Path) -> None:
     # Sets each routed host's DEFAULT route to its router (the routing milestone). Reads the
@@ -64,7 +65,9 @@ def apply_routes(docker: str, project: str, log: Path) -> None:
     #     and from the host:  ping a host on another subnet should now traverse the router.
     for route in routes:
         cmd = [docker, "exec", route["host"], "ip", "route", "replace", route["to"], "via", route["via"]]
-        common.run(cmd, log_path=log)
+        # check=False: a host that isn't running / lacks `ip` logs the failure but doesn't sink the
+        # whole deploy (the rest of the stack stays up). Inspect deploy.log if routing misbehaves.
+        common.run(cmd, log_path=log, check=False)
 
 def deploy(environment: dict[str, Any], *, docker: str, project_override: str | None) -> dict[str, Any]:
     # Step 1: resolve project + artifact.
@@ -85,6 +88,10 @@ def deploy(environment: dict[str, Any], *, docker: str, project_override: str | 
     env_run_dir.mkdir(parents=True, exist_ok=True)
     log = env_run_dir / "deploy.log"
     log.write_text("")
+    # Boot the Docker backend (Colima on macOS / native daemon on Linux) if it isn't already up, so
+    # "Run Environment" works without a manual start. Dispatched by OS in docker_boot. Must run
+    # BEFORE ensure_docker_ready, which needs the socket to exist + the daemon to answer.
+    docker_boot.ensure_docker_backend_running(log)
     docker = common.ensure_docker_ready(docker, log)
 
     # Step 3: bring the stack up. Compose creates the networks (IPAM), builds the host images

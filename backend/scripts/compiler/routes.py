@@ -2,7 +2,7 @@ from typing import Any
 
 import common
 from compiler.types import Env
-from compiler.helpers import reserved_router_ip, subnet_cidr_map
+from compiler.helpers import router_ip_on_subnet, subnet_cidr_map
 
 
 def build_routes(env: Env) -> list[dict[str, Any]]:
@@ -47,10 +47,11 @@ def build_routes(env: Env) -> list[dict[str, Any]]:
         bridged = [n for n in router["networks"] if n in cidr_by_subnet]
 
         for subnet_name in bridged:
-            # Step 2: the default-gateway for hosts on THIS subnet = the router's reserved IP on
-            #   it (same L2 as those hosts, so they can ARP it). MUST match build_router_service.
-            #   via = reserved_router_ip(cidr_by_subnet[subnet_name])
-            via = reserved_router_ip(cidr_by_subnet[subnet_name])
+            # Step 2: the default-gateway for hosts on THIS subnet = the router's pinned IP on it
+            #   (same L2 as those hosts, so they can ARP it). Uses router_ip_on_subnet so it matches
+            #   build_router_service exactly, even when several routers share the subnet (the seen
+            #   dedup below means the FIRST router that bridges the subnet wins each host).
+            via = router_ip_on_subnet(env, cidr_by_subnet[subnet_name], router["name"], subnet_name)
 
             # Step 3: locate the hosts ON subnet_name. Walk env["networks"][*]["subnets"], keep
             #   only the subnet whose name == subnet_name, then iterate its hosts.

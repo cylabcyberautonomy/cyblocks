@@ -35,7 +35,45 @@ def service_name_from_ide_dict(IDE_dict: dict, service_id: str) -> str:
     return f"cyblocks_{project_name_from_ide_dict(IDE_dict)}_{slugify(service_id)}"
 
 def docker_bin() -> str:
+    # Prefer the standalone Docker Engine CLI over Docker Desktop's client. On Apple-Silicon macOS
+    # the Homebrew (engine) client is /opt/homebrew/bin/docker while Desktop's is
+    # /usr/local/bin/docker; on Linux the distro client is /usr/bin/docker. Falls back to PATH.
+    # (The daemon is pinned to Colima via DOCKER_HOST regardless -- this just avoids invoking the
+    # Desktop client.)
+    for candidate in ("/opt/homebrew/bin/docker", "/usr/bin/docker"):
+        if Path(candidate).exists():
+            return candidate
     return shutil.which("docker") or "docker"
+
+def _link_cli_plugins(docker_config: Path) -> None:
+    # Docker discovers user CLI plugins (compose, buildx) in $DOCKER_CONFIG/cli-plugins. Because we
+    # point DOCKER_CONFIG at an isolated dir, the host's plugins are no longer found and
+    # `docker compose -f ...` breaks with "unknown shorthand flag: 'f'" (compose seen as unknown ->
+    # -f parsed as a docker flag). Symlink the plugins we need into the isolated dir.
+    #
+    # Prefer the Homebrew / system (Docker Engine CLI) plugins over ~/.docker, which on macOS points
+    # at Docker Desktop -- we run on Colima, so we deliberately avoid Desktop.
+    plugins_dir = docker_config / "cli-plugins"
+    plugins_dir.mkdir(parents=True, exist_ok=True)
+    search = [
+        Path("/opt/homebrew/lib/docker/cli-plugins"),   # Homebrew (Apple Silicon) -- engine CLI
+        Path("/usr/local/lib/docker/cli-plugins"),      # Homebrew (Intel) / Linux
+        Path("/usr/local/libexec/docker/cli-plugins"),
+        Path("/usr/lib/docker/cli-plugins"),            # Linux distro packages
+        Path("/usr/libexec/docker/cli-plugins"),
+        Path.home() / ".docker" / "cli-plugins",        # last resort (Docker Desktop on macOS)
+    ]
+    for name in ("docker-compose", "docker-buildx"):
+        dest = plugins_dir / name
+        if dest.exists() or dest.is_symlink():
+            continue
+        src = next((d / name for d in search if (d / name).exists()), None)
+        if src is not None:
+            try:
+                dest.symlink_to(src.resolve())
+            except OSError:
+                pass
+
 
 def configure_docker_cli_environment() -> None:
     system = platform.system().lower()
@@ -46,6 +84,8 @@ def configure_docker_cli_environment() -> None:
     config_path = docker_config / "config.json"
     if not config_path.exists():
         config_path.write_text('{ "auths": {} }\n')
+    # Keep compose/buildx discoverable under the isolated DOCKER_CONFIG (see _link_cli_plugins).
+    _link_cli_plugins(docker_config)
 
     if os.environ.get("DOCKER_HOST") or os.environ.get("DOCKER_CONTEXT"):
         return

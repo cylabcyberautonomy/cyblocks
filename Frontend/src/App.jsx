@@ -218,10 +218,12 @@ const downloadJSON = (filename, data0bj) => {
   a.click();
   URL.revokeObjectURL(url);
 };
-//we sill use hierachy structure for JSON file to match the examples from MHbench 
-//We need to use the flat env we created and use it to compile a file for docker where the orginization is from top to bottom 
-//subnets contain hosts and host contin other stuff and router could connect subnets or hosts toghther 
-const compileToDocker = (env) => {
+//we sill use hierachy structure for JSON file to match the examples from MHbench
+//We need to use the flat env we created and use it to compile a file for docker where the orginization is from top to bottom
+//subnets contain hosts and host contin other stuff and router could connect subnets or hosts toghther
+// buildDockerDsl: PURE transform flat env -> nested docker DSL. Returned (not downloaded) so both
+// the Compile->Docker button and Run Environment reuse it. This IS our intermediary DSL.
+const buildDockerDsl = (env) => {
   const hostsBySubnet = {};
   const Subnetcounts = {};
   //first find each subnet that has host inside it so we check the conntions we made in env that contain Host or Subnet 
@@ -283,9 +285,11 @@ const compileToDocker = (env) => {
     files: env.files,
     connections,
   };
-  downloadJSON(`${env.name}-docker.json`, dockerEnv);
+  return dockerEnv;
 };
-//To have the ability to compile to differnt structures in the future 
+// Compile->Docker button: build the DSL and download it for inspection.
+const compileToDocker = (env) => downloadJSON(`${env.name}-docker.json`, buildDockerDsl(env));
+//To have the ability to compile to differnt structures in the future
 const targets = {
   docker: compileToDocker,
 };
@@ -300,13 +304,16 @@ const compile = (targetName) => {
 };
 
 //  This function is called by our button to facilate the debloying and compiling to docker (connecting the frontend with the backend)
+//  Flow: flat env (buildEnv) -> docker DSL (buildDockerDsl) -> backend /deploy (which compiles the
+//  DSL to Dockerfiles/compose then deploys). We send the DSL, not the flat env, so the IDE owns the
+//  flat->DSL transform and the backend just compiles+deploys what it's given.
 const runEnvironment = async () => {
-  const env = buildEnv();  
+  const dsl = buildDockerDsl(buildEnv());
   try {
     const res = await fetch("http://127.0.0.1:8000/deploy", {//HTTP request to URL and wait for the backend to reply ( it waits for the whole deploying to finish)
       method: "POST",
-      headers: { "Content-Type": "application/json" },//type of the file we are sending 
-      body: JSON.stringify(env)
+      headers: { "Content-Type": "application/json" },//type of the file we are sending
+      body: JSON.stringify(dsl)
     });
     const data = await res.json();//the respons we get back from the backend 
     if (!res.ok) {
@@ -316,7 +323,31 @@ const runEnvironment = async () => {
     }
     alert("Deployed: " + data.project);
     console.log("deployment state:", data);
-  } catch (err) {//catching the other failure where res was not event produced 
+  } catch (err) {//catching the other failure where res was not event produced
+    alert("Could not reach backend at :8000 — is backend running?");
+    console.error(err);
+  }
+};
+
+// End Experiment: tears down the running stack AND stops the docker backend (Colima on macOS /
+// docker service on Linux). The backend lazily restarts on the next Run Environment.
+const endExperiment = async () => {
+  const dsl = buildDockerDsl(buildEnv());
+  try {
+    const res = await fetch("http://127.0.0.1:8000/end", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(dsl)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert("End experiment failed: " + (data.error || res.status));
+      console.error(data.traceback);
+      return;
+    }
+    alert("Experiment ended (stack down, docker backend stopped).");
+    console.log("end state:", data);
+  } catch (err) {
     alert("Could not reach backend at :8000 — is backend running?");
     console.error(err);
   }
@@ -466,6 +497,7 @@ return (
     )}
     </div>
     <button onClick={runEnvironment}>Run Environment</button>
+    <button onClick={endExperiment}>End Experiment</button>
 
     <button onClick={loadDemoEnvironment}>Load Demo</button>
     </div>

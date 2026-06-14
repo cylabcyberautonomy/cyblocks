@@ -94,12 +94,15 @@ def render_router_docker(image: str) -> str:
 
 
 def render_router_entrypoint() -> str:
-    # #!/bin/sh
-    # sysctl -w net.ipv4.ip_forward=1
-    # iptables -t nat -A POSTROUTING -j MASQUERADE
-    # exec "$@"
+    # Enable forwarding + NAT, then HAND OFF: run the given command if there is one, else stay alive.
+    # Without the keep-alive the script returns after setup and the router container Exits (0) -- but
+    # the router must keep running to forward traffic for the subnets it bridges.
     entrypoint = "#!/bin/sh\n"
     entrypoint += "sysctl -w net.ipv4.ip_forward=1\n"
     entrypoint += "iptables -t nat -A POSTROUTING -j MASQUERADE\n"
-    entrypoint += "exec \"$@\"\n"
+    entrypoint += "if [ \"$#\" -gt 0 ]; then\n"
+    entrypoint += "  exec \"$@\"\n"
+    entrypoint += "else\n"
+    entrypoint += "  exec tail -f /dev/null\n"
+    entrypoint += "fi\n"
     return entrypoint

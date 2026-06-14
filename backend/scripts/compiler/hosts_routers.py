@@ -2,7 +2,22 @@ from typing import Any
 
 import common
 from compiler.types import Env, Host, Payloads, Router, Subnet
-from compiler.helpers import reserved_router_ip, subnet_cidr_map, subnet_is_routed
+from compiler.helpers import router_ip_on_subnet, subnet_cidr_map, subnet_is_routed
+
+
+# Bare OS base images have no long-running process -- a container from them exits immediately, so
+# the host vanishes (and routing can't `docker exec` into it). These get a keep-alive command.
+# Daemon images (nginx, tomcat, mysql, redis, httpd, ...) stay up on their own, so we leave their
+# CMD intact -- overriding it would stop the very service we want running.
+_BARE_OS_IMAGES = (
+    "ubuntu", "debian", "alpine", "busybox", "fedora", "centos",
+    "rockylinux", "almalinux", "oraclelinux", "amazonlinux", "archlinux",
+)
+
+
+def _needs_keepalive(image: str) -> bool:
+    base = (image or "").split("/")[-1].split(":")[0].lower()
+    return base in _BARE_OS_IMAGES
 
 
 def build_host_service(env: Env, host: Host, subnet: Subnet, payloads_for_host: Payloads) -> tuple[str, dict[str, Any]]:
@@ -51,12 +66,21 @@ def build_host_service(env: Env, host: Host, subnet: Subnet, payloads_for_host: 
     if host.get("ram"):
         service_dict["mem_limit"] = host["ram"]
 
-    # Step 6: ports. One "<p>:<p>" per bound service that declares a port; omit key if none.
-    #   ports = [f"{s['port']}:{s['port']}" for s in payloads_for_host["services"] if s.get("port")]
-    #   if ports: service_dict["ports"] = ports
-    ports = [f"{s['port']}:{s['port']}" for s in payloads_for_host["services"] if s.get("port")]
-    if ports:
-        service_dict["ports"] = ports
+    # Step 5b: keep-alive for bare-OS images so the container persists (and routing can exec into
+    #   it). Daemon images keep their own CMD. tail -f /dev/null is portable across debian/alpine.
+    if _needs_keepalive(host["image"]):
+        service_dict["command"] = ["tail", "-f", "/dev/null"]
+
+    # Step 6: EXPOSE service ports to the range's internal networks ONLY -- do NOT publish to the
+    #   host. Publishing ("<p>:<p>") binds the host port, which (a) collides when the host already
+    #   uses it (e.g. sshd on 22 -> "address already in use") or when two containers share a port,
+    #   and (b) exposes intentionally-vulnerable services on the host's interface -- wrong for an
+    #   isolated cyber-range. Containers on the same docker network already reach each other directly;
+    #   `expose` just documents the ports. (To poke a service from the host instead, publish an
+    #   EPHEMERAL port -- use ["<p>"] not ["<p>:<p>"] -- so docker picks a free host port.)
+    exposed = [str(s["port"]) for s in payloads_for_host["services"] if s.get("port")]
+    if exposed:
+        service_dict["expose"] = exposed
 
     return slug, service_dict
 
@@ -90,7 +114,8 @@ def build_router_service(env: Env, router: Router) -> tuple[str, dict[str, Any]]
     networks: dict[str, Any] = {}
     for name in router.get("networks", []):
         net_key = common.network_name_from_ide_dict(env, name)
-        reserved = reserved_router_ip(cidr_by_subnet[name])
+        # distinct IP per router on a shared subnet (multiple routers otherwise both grab .254).
+        reserved = router_ip_on_subnet(env, cidr_by_subnet[name], router["name"], name)
         networks[net_key] = {"ipv4_address": reserved}
 
     # Step 4: assemble. Exactly the compose runtime keys -- NO services/vulns/misconfigs.

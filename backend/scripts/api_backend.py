@@ -23,6 +23,11 @@ API SPEC
         `docker compose ... down` for that project
         -> 200 {"project": str, "status": "down"}
 
+  POST /end            body: {"project": str}  OR  env JSON   ("End Experiment")
+        `docker compose ... down` AND stops the docker backend (Colima on macOS /
+        docker service on Linux). Deploy lazily restarts it next time.
+        -> 200 {"project": str, "status": "down", "backend": "stopped"}
+
   Any handler error -> 500 {"error": str, "traceback": str}.
 
 Run:  python3 backend/scripts/api_backend.py     (listens on http://127.0.0.1:8000)
@@ -33,6 +38,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import common
 import deploy_docker
+import docker_boot
 import vulnerability_library
 from dsl.compile_to_dsl import to_dsl
 from compiler.routes import build_routes
@@ -68,7 +74,20 @@ def do_quit(payload: dict) -> dict:
     return {"project": project, "status": "down"}
 
 
-POST_ROUTES = {"/compile": do_compile, "/deploy": do_deploy, "/quit": do_quit}
+def do_end(payload: dict) -> dict:
+    # "End Experiment": tear the stack down (compose down) AND stop the docker backend (Colima on
+    # macOS / docker service on Linux). Deploy lazily restarts it next time. Tolerant of a missing
+    # stack (e.g. nothing was deployed / backend never started) -- we still stop the backend.
+    try:
+        result = do_quit(payload)
+    except Exception as exc:
+        result = {"status": "down", "quit_error": str(exc)}
+    docker_boot.stop_docker_backend()
+    result["backend"] = "stopped"
+    return result
+
+
+POST_ROUTES = {"/compile": do_compile, "/deploy": do_deploy, "/quit": do_quit, "/end": do_end}
 
 
 # --- HTTP plumbing ---------------------------------------------------------
