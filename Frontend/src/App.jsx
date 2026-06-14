@@ -20,6 +20,7 @@ const blockProperties = {
   File:{name: "", path: "", sensitivity: ""}
 };
 const blockStyles = {
+<<<<<<< HEAD
   Host:            { background: "#70a6cd", icon: "🖥️" },
   Router:          { background: "#5d658f",color: "#FFF", icon: "📡" },
   Service:         { background: "#6ea673",color: "#FFF", icon: "⚙️" },
@@ -31,6 +32,20 @@ const blockStyles = {
   Agent:           { background: "#000000", color: "#FFF",icon: "🤖" },
   Tool:            { background: "#000000", color: "#FFF",icon: "🔧" },
 };
+=======
+  Host:            { background: "#0095ff", icon: "🖥️" },
+  Router:          { background: "#6b77be", icon: "📡" },
+  Service:         { background: "#0da319", icon: "⚙️" },
+  Vulnerability:   { background: "#960a1f", icon: "🐞" },
+  Misconfiguration:{ background: "#ffaf0f", icon: "⚠️" },
+  Subnet:          { background: "#2241e0", icon: "🌐" },
+  User:            { background: "#e0dd3c", icon: "👤" },
+  File:            { background: "#737572", icon: "📄" },
+  Agent:           { background: "#000000", icon: "🤖" },
+  Tool:            { background: "#000000", icon: "🔧" },
+};
+
+>>>>>>> origin/cyblocks-backend
 //we need the first laod of the page to open an environment tap  so people acn drag and drop 
 const initialFile = { id: crypto.randomUUID(), name: "Env 1", type: "environment", nodes: [], edges: [] };
 const [panelPos, setPanelPos] = useState({ x: 320, y: 80 });
@@ -77,9 +92,29 @@ const closeFile = (id) => {
   setFiles((current) => current.filter((f) => f.id !== id));
   if (activeId === id) setActiveId(null);//delete the active file and set the active id to null if we closed the active file
 };
+<<<<<<< HEAD
 const updateNodeProperty = (nodeId, key, value) => {
   setActiveNodes((nds) => nds.map((n) =>{
     if ( n.id !== nodeId) return n;
+=======
+
+const updateNodeProperty = (nodeId, key, value) => {
+  setActiveNodes((nds) => nds.map((n) =>{
+    if ( n.id !== nodeId) return n;
+
+    const newProperties = { ...n.data.properties, [key]: value };
+
+    const newLabel = (key ==="name"  || key === "Type")
+      ? makeLabel(n.data.blockType,value)
+      : n.data.label;
+
+      return{
+      ...n,
+    data: { ...n.data, properties: newProperties, label: newLabel },
+    };
+  }));
+};
+>>>>>>> origin/cyblocks-backend
 
     const newProperties = { ...n.data.properties, [key]: value };
 
@@ -130,6 +165,8 @@ const connectionKind = (sourceType, targetType) => {
     return { status: "valid", type: "service" };
   if ((sourceType === "Vulnerability" || sourceType === "Misconfiguration") && targetType === "Service")
     return { status: "valid", type: "vulnerability" };
+  if (sourceType === "Router" && targetType === "Host")
+    return { status: "valid", type: "topology" };
   if (sourceType === "Router" && targetType === "Host")
     return { status: "valid", type: "topology" };
   if (sourceType === "Router" && targetType === "Router")
@@ -225,6 +262,7 @@ const compileToDocker = (env) => {
   const hostsBySubnet = {};
   const Subnetcounts = {};
   //first find each subnet that has host inside it so we check the conntions we made in env that contain Host or Subnet 
+<<<<<<< HEAD
     const subnetOfHost = (hostName) => {
     for (const c of env.connections) {
       if (c.fromType === "Host" && c.from === hostName && c.toType === "Subnet") return c.to;
@@ -320,6 +358,90 @@ const runEnvironment = async () => {
     alert("Could not reach backend at :8000 — is backend running?");
     console.error(err);
   }
+=======
+
+    const subnetOfHost = (hostName) => {
+    for (const c of env.connections) {
+      if (c.fromType === "Host" && c.from === hostName && c.toType === "Subnet") return c.to;
+      if (c.toType === "Host" && c.to === hostName && c.fromType === "Subnet") return c.from;
+    }
+    return null;
+  };
+
+  //we assign hosts under subnets 
+  env.subnets.forEach((s) => { hostsBySubnet[s.name] = []; });
+
+  //for each host we need to assign it different IP
+  for (const h of env.hosts) {
+    const subnet = env.subnets.find((s) => s.name === subnetOfHost(h.name));
+    if (!subnet || !subnet.cidr) continue;
+    const octets = subnet.cidr.split("/")[0].split(".");
+    const n = Subnetcounts[subnet.name] || 0;
+    octets[3] = String(10 + n);
+    Subnetcounts[subnet.name] = n + 1;
+    hostsBySubnet[subnet.name].push({ name: h.name, image: h.image, ip: octets.join("."), ram: h.ram, disk: h.disk });
+  }
+
+  const subnets = env.subnets.map((s) => ({ name: s.name, cidr: s.cidr, hosts: hostsBySubnet[s.name] || [] }));
+
+// which subnets does a router touch?
+  const networksOfRouter = (routerName) => {
+    const result = [];
+    for (const c of env.connections) {
+      if (c.fromType === "Router" && c.from === routerName && c.toType === "Subnet") result.push(c.to);
+      if (c.toType === "Router" && c.to === routerName && c.fromType === "Subnet") result.push(c.from);
+    }
+    return result;
+  };
+  const routers = env.routers.map((r) => ({ name: r.name, image: r.image, networks: networksOfRouter(r.name) }));
+
+  // subnet_connections from Router↔Subnet
+  const subnetConnections = [];
+  for (const c of env.connections) {
+    const rs = c.fromType === "Router" && c.toType === "Subnet";
+    const sr = c.fromType === "Subnet" && c.toType === "Router";
+    if (rs || sr) subnetConnections.push({ router: rs ? c.from : c.to, from_subnet: rs ? c.to : c.from, to_subnet: null, bidirectional: true });
+  }
+
+  // remaining connections (drop the topology ones docker captures elsewhere)
+  const connections = [];
+  for (const c of env.connections) {
+    const topoPair = (c.fromType === "Subnet" || c.fromType === "Router") && (c.toType === "Subnet" || c.toType === "Router");
+    const hostSubnet = (c.fromType === "Host" && c.toType === "Subnet") || (c.fromType === "Subnet" && c.toType === "Host");
+    if (topoPair || hostSubnet) continue;
+    connections.push({ from: c.from, to: c.to, fromType: c.fromType, toType: c.toType, label: c.kind });
+  }
+  //building our env object with all the small objects we have built 
+  const dockerEnv = {
+    name: env.name,
+    networks: [{ name: env.name, subnets }],
+    subnet_connections: subnetConnections,
+    services: env.services.map((s) => ({ ...s, type: s.name })),
+    vulnerabilities: env.vulnerabilities,
+    misconfigurations: env.misconfigurations,
+    routers,
+    users: env.users,
+    files: env.files,
+    connections,
+  };
+  downloadJSON(`${env.name}-docker.json`, dockerEnv);
+};
+
+
+//To have the ability to compile to differnt stuff 
+const targets = {
+  docker: compileToDocker,
+};
+
+const compile = (targetName) => {
+  const env = buildEnv();              // flat envionment
+  const target = targets[targetName];  // which compilation to choose 
+  if (!target) {
+    alert("Unknown target: " + targetName);
+    return;
+  }
+  target(env);                         
+>>>>>>> origin/cyblocks-backend
 };
 
 //Just an example of an environmet to test compilation faster 
@@ -327,6 +449,7 @@ const loadDemoEnvironment = () => {
 const s = blockStyles; 
   const box = (type) => ({ background: s[type].background, color: s[type].color });
   const demoNodes = [
+<<<<<<< HEAD
     // --- Subnets ---
     { id: "subnet-A", type: "Subnet", position: { x: 80, y: 40 }, style: box("Subnet"),
       data: { label: makeLabel("Subnet", "A"), blockType: "Subnet", properties: { name: "A", CIDR: "172.20.0.0/24" } } },
@@ -358,6 +481,34 @@ const s = blockStyles;
       data: { label: makeLabel("Service", "openssh-server"), blockType: "Service", properties: { name: "ssh-c", Type: "openssh-server", protocol: "tcp", port: "22", version: "8.9" } } },
     { id: "file-marko", type: "File", position: { x: 1120, y: 400 }, style: box("File"),
       data: { label: makeLabel("File", "Marko.txt"), blockType: "File", properties: { name: "Marko.txt", path: "/root/Marko.txt", sensitivity: "very secret" } } },
+=======
+    // Subnets
+    { id: "subnet-1", data: { label: "network: DMZ", blockType: "Subnet", properties: { name: "dmz", CIDR: "172.20.0.0/24" } }, position: { x: 100, y: 50 } },
+    { id: "subnet-2", data: { label: "network: Internal", blockType: "Subnet", properties: { name: "internal", CIDR: "10.0.0.0/24" } }, position: { x: 400, y: 50 } },
+    
+    // Hosts
+    { id: "host-1", data: { label: "host: web-server", blockType: "Host", properties: { name: "web-server", image: "nginx:latest", RAM: "512m", disk: "1g" } }, position: { x: 50, y: 200 } },
+    { id: "host-2", data: { label: "host: db-server", blockType: "Host", properties: { name: "db-server", image: "mysql:8", RAM: "1g", disk: "2g" } }, position: { x: 350, y: 200 } },
+    { id: "host-3", data: { label: "host: jump-host", blockType: "Host", properties: { name: "jump-host", image: "ubuntu:22.04", RAM: "512m", disk: "1g" } }, position: { x: 650, y: 200 } },
+    
+    // Services
+    { id: "svc-1", data: { label: "service: http-web", blockType: "Service", properties: { name: "http-web", Type: "web", protocol: "tcp", port: "80", version: "nginx-1.24" } }, position: { x: 50, y: 350 } },
+    { id: "svc-2", data: { label: "service: mysql-db", blockType: "Service", properties: { name: "mysql-db", Type: "database", protocol: "tcp", port: "3306", version: "mysql-8.0" } }, position: { x: 350, y: 350 } },
+    
+    // Vulnerability
+    { id: "vuln-1", data: { label: "Vuln: sql-injection", blockType: "Vulnerability", properties: { Type: "sql-injection", CVE: "CVE-2024-12345", Description: "SQL injection in login form", severity: "High" } }, position: { x: 50, y: 450 } },
+    
+    // Users
+    { id: "user-1", data: { label: "user: admin", blockType: "User", properties: { name: "admin", password: "admin123", privilege_level: "admin" } }, position: { x: 200, y: 500 } },
+    { id: "user-2", data: { label: "user: john", blockType: "User", properties: { name: "john", password: "john123", privilege_level: "user" } }, position: { x: 500, y: 500 } },
+    
+    // Files
+    { id: "file-1", data: { label: "file: config.json", blockType: "File", properties: { name: "config.json", path: "/etc/config.json", sensitivity: "confidential" } }, position: { x: 200, y: 600 } },
+    { id: "file-2", data: { label: "file: secrets.txt", blockType: "File", properties: { name: "secrets.txt", path: "/home/admin/secrets.txt", sensitivity: "critical" } }, position: { x: 500, y: 600 } },
+    
+    // Router
+    { id: "router-1", data: { label: "router: core-router", blockType: "Router", properties: { name: "core-router", image: "router-vm:latest" } }, position: { x: 400, y: 100 } },
+>>>>>>> origin/cyblocks-backend
   ];
   const demoEdges = [
     // Each host sits in its subnet
@@ -465,8 +616,11 @@ return (
       </div>
     )}
     </div>
+<<<<<<< HEAD
     <button onClick={runEnvironment}>Run Environment</button>
 
+=======
+>>>>>>> origin/cyblocks-backend
     <button onClick={loadDemoEnvironment}>Load Demo</button>
     </div>
      <div className="Toolbar">
@@ -536,9 +690,13 @@ return (
           type:name,
           position, 
           data:  { label: makeLabel(name, ""), blockType: name, properties: { ...blockProperties[name] } },//start stating the block type to help determine the kind of connection we have 
+<<<<<<< HEAD
           //style: { background: s.background, border: s.border, borderRadius: 8, padding: 10 },
           ...(name !== "Host" && { style: { background: s.background, color: "#FFF"} }),
 
+=======
+          style: { background: s.background, border: s.border, borderRadius: 8, padding: 10 },
+>>>>>>> origin/cyblocks-backend
         };
           setActiveNodes((current) => [...current, newNode]);
         }}
