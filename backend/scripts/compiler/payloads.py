@@ -8,9 +8,13 @@ def bind_payloads(env: Env) -> dict[str, dict[str, Any]]:
     services_by_name = {s["name"]: s for s in env["services"]}
     vulns_by_name = {v["name"]: v for v in env["vulnerabilities"]}
     misc_by_name = {m["name"]: m for m in env["misconfigurations"]}
+    # Step A: lookup tables for the direct host binds (users/files milestone).
+    users_by_name = {u["name"]: u for u in env["users"]}
+    files_by_name = {f["name"]: f for f in env["files"]}
 
     payloads: dict[str, dict[str, Any]] = defaultdict(
-        lambda: {"services": [], "vulnerabilities": [], "misconfigurations": []}
+        # Step B: users/files get their own buckets, alongside services/vulns/misconfigs.
+        lambda: {"services": [], "vulnerabilities": [], "misconfigurations": [], "users": [], "files": []}
     )
 
     # A connection's endpoints are node names; the user may draw the edge in
@@ -40,6 +44,21 @@ def bind_payloads(env: Env) -> dict[str, dict[str, Any]]:
             if not service:
                 continue
             host = service_host.get(service)
+            if host and payload in table:
+                payloads[host][bucket].append(table[payload])
+
+    # ---------------------------------------------------------------------------
+    # User -> Host and File -> Host bind DIRECTLY to the host (one hop, no Service in between,
+    # unlike vulns/misconfigs above). render.py Steps 6/7 turn these buckets into useradd /
+    # file-write lines, and build_compose emits a Dockerfile for hosts that have ONLY users/files.
+    # ---------------------------------------------------------------------------
+    # Step C: one loop reusing the existing endpoints() helper for the direct host bind.
+    for c in env["connections"]:
+        for ptype, bucket, table in (
+            ("User", "users", users_by_name),
+            ("File", "files", files_by_name),
+        ):
+            payload, host = endpoints(c, ptype, "Host")
             if host and payload in table:
                 payloads[host][bucket].append(table[payload])
 

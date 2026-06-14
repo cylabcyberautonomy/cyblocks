@@ -66,7 +66,10 @@ def build_compose(env: Env) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 # iproute2 THREAD: also emit a plan item for ROUTED hosts (they need a Dockerfile
                 #   to install iproute2 even with no payload), and TAG every item with "routed" so
                 #   render_host_docker knows whether to add the iproute2 install line.
-                if any(p[k] for k in ("services", "vulnerabilities", "misconfigurations")) or subnet_is_routed(env, subnet["name"]):
+                # users/files milestone: "users" and "files" are in the key tuple so a host that has
+                #   ONLY a user or a file (no service/vuln) still gets a Dockerfile -- otherwise
+                #   render Steps 6/7 would never run for it.
+                if any(p[k] for k in ("services", "vulnerabilities", "misconfigurations", "users", "files")) or subnet_is_routed(env, subnet["name"]):
                     dockerfile_list.append({"slug": slug, "type": "host", "image": host["image"], "payloads": p, "routed": subnet_is_routed(env, subnet["name"])})
 
     return compose_dict, dockerfile_list

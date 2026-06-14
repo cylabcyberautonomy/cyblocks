@@ -8,6 +8,9 @@ API SPEC
   GET  /health
         -> 200 {"status": "ok"}
 
+  GET  /vulnerabilities
+        -> 200 [{"name","description","cve","severity"}, ...]   (the IDE vuln dropdown source)
+
   POST /compile        body: env JSON  (flat IDE "Export Environment"  OR  nested DSL)
         flat -> DSL -> build/ artifact (docker-compose.yaml + Dockerfiles + routes.json + dsl.json)
         -> 200 {"project": str, "build": "<path>", "dsl": {...}}
@@ -30,6 +33,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import common
 import deploy_docker
+import vulnerability_library
 from dsl.compile_to_dsl import to_dsl
 from compiler.routes import build_routes
 from compiler.write import write_artifact
@@ -91,6 +95,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path == "/health":
             self._send(200, {"status": "ok"})
+        elif self.path == "/vulnerabilities":
+            self._send(200, vulnerability_library.list_vulnerabilities())
         else:
             self._send(404, {"error": f"unknown endpoint {self.path}"})
 
