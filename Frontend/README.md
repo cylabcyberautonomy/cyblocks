@@ -13,6 +13,10 @@ The current flow of compilations is to build a flat environment list file that c
 
 This compilation design choise allowes us to reuse the flat environment to compile to different target structure we migh want to add in the future.
 
+**Costumized Host Node**
+The Host node can connect using 5 color coded handles that connect to subnets + routers + users + files + services. Each hnadle color connect to the same blcok color we are trying to connect 
+
+
 ## Built with 
 
 This Frontend was built with:
