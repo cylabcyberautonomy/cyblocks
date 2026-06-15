@@ -3,6 +3,7 @@ import { ReactFlow, Background, Controls, applyNodeChanges , addEdge ,applyEdgeC
 import '@xyflow/react/dist/style.css'
 import { useState } from 'react'; //so we can manage the taps and switch between them 
 import HostNode from './parts/HostNode';
+import AllNodes from './parts/AllNodes';
 //Buidling a simple UI for the app, with a tapbar, sidebar and main canves
 //This is just a placeholder for now, we will add more functionality later
 function App() {
@@ -548,7 +549,15 @@ return (
         <ReactFlow nodes={nodes}  
         onNodesChange={(changes) => setActiveNodes((nds) => applyNodeChanges(changes, nds))} 
         edges={edges}
-        nodeTypes={{Host: HostNode}}
+        nodeTypes={{Host: HostNode,
+        Subnet: AllNodes,
+        Router: AllNodes,
+        Service: AllNodes,
+        Vulnerability: AllNodes,
+        Misconfiguration: AllNodes,
+        User: AllNodes,
+        File: AllNodes,   
+        }}
         defaultEdgeOptions={{type: 'step'}}
         isValidConnection={(connection)=> {
         const sourceNode = nodes.find((n) => n.id === connection.source);
