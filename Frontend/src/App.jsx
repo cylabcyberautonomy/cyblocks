@@ -512,7 +512,7 @@ return (
       </div>
     )}
     </div>
-    <button onClick={runEnvironment}>Run Environment</button>
+    <button onClick={runEnvironment}>start Experiment</button>
     <button onClick={endExperiment}>End Experiment</button>
 
     <button onClick={loadDemoEnvironment}>Load Demo</button>
