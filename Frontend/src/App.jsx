@@ -335,7 +335,7 @@ const runEnvironment = async () => {
 const endExperiment = async () => {
   const dsl = buildDockerDsl(buildEnv());
   try {
-    const res = await fetch("http://127.0.0.1:8000/end", {
+    const res = await fetch("http://127.0.0.1:8000/quit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(dsl)
