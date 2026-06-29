@@ -15,7 +15,6 @@ def main():
     ]
     ctrl_q = ControlQueue()      # control queue
     data   = DataStack()         # data stack
-    ptt    = PTT()               # the blocks write to teh PTT
 
     #we give teh start block to the control queue and start ruuning the attack 
     ctrl_q.start(hello1)         

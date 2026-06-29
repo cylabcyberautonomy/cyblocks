@@ -1,14 +1,8 @@
 # This handles the control flow during runtime 
 from collections import deque#we will keep control of teh current blcok being run on the queue 
-class PTT:                                 #this class hold the current PTT we are running or the blcok we are running 
-    def __init__(self):
-        self.entries = []
-    def write(self, who, text):            # only the block holding control writes
-        self.entries.append((who, text))
-    def render(self):
-        return " ".join(text for _, text in self.entries)
-
 #these clases will be called and run from the main.py it conatin flow and data control using the queue and stack 
+# PTT removed, was from earlier
+
 class ControlQueue:                        # control flow = FIFO queue
     def __init__(self):
         self._q = deque()
@@ -32,12 +26,12 @@ class DataStack:                           # data flow = LIFO stack (dormant now
         return not self._s
 
 #what actully gets run after the current block 
-def resolve(block, label, by_name, edges):                # which blcok gets run next derived from the control edges 
-    for e in edges:
-        if e["from"] == block.name and e["label"] == label:
-            return self.by_name.get(e["to"]) #our next block to run 
-    return None                                     # no matching edge = at the end so stop
-
+# def resolve(block, label, by_name, edges):                # which blcok gets run next derived from the control edges 
+#     for e in edges:
+#         if e["from"] == block.name and e["label"] == label:
+#             return self.by_name.get(e["to"]) #our next block to run 
+#     return None                                     # no matching edge = at the end so stop
+# resolve functionality moved into block in modules
 
 def run(queue, blocks, edges, ptt):
    by_name = {b.name: b for b in blocks}   # we give control to each block by appending it to the control queue
