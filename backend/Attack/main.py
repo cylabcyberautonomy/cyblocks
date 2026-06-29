@@ -4,16 +4,24 @@ from modules.world import World
 from runtime import Runtime
 def main():
     # list all the block and modules that will be used in this attcak 
-    blocks = [
-        Hello(id="h1", name="hello1"),
-        World(id="w1", name="world1"),
-    ]
-    control_connections = [#we know this is working and following the order from json and the mapper (if we change the edge order it prints world hello )
+    # Blocks instentation 
+    hello1 = Hello(id="h1", name="hello1")
+    world1 = World(id="w1", name="world1")
+    blocks = [hello1, world1]
+
+    # the JSON's edges we will get from teh IDE 
+    control_connections = [
         {"from": "hello1", "to": "world1", "label": "next"},
     ]
-    rt  = Runtime(blocks, control_connections, start="hello1")#we feed it the start block and runtime will handle giving control  to teh block after it 
-    ptt = rt.run()
-    print(ptt.render())     #ptt as a data file will help us print stuff to the terminal at the end (in the future this will print the status of the attck )
-#runs only when we do `python main.py`and no import main.py
-if __name__ == "__main__":
+    ctrl_q = ControlQueue()      # control queue
+    data   = DataStack()         # data stack
+    ptt    = PTT()               # the blocks write to teh PTT
+
+    #we give teh start block to the control queue and start ruuning the attack 
+    ctrl_q.start(hello1)         
+    run(ctrl_q, blocks, control_connections, ptt)   
+
+    print(ptt.render()) #ptt as a data file will help us print stuff to the terminal at the end (in the future this will print the status of the attck )
+    #runs only when we do `python main.py`and no import main.py
+    if __name__ == "__main__":
     main()
