@@ -6,3 +6,4 @@ backend/runs/
 # Python bytecode cache
 __pycache__/
 *.pyc
+__pycache__/
