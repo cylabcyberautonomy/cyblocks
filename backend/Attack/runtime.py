@@ -7,8 +7,7 @@ class PTT:                                 #this class hold the current PTT we a
         self.entries.append((who, text))
     def render(self):
         return " ".join(text for _, text in self.entries)
-
-class Runtime:
+class Runtime:#this class will be called and run from the main.py 
     def __init__(self, blocks, control_connections, start):
         self.by_name = {b.name: b for b in blocks}  # name -> block (routing table)
         self.edges   = control_connections          # [{from, to, label}]
