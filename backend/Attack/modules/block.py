@@ -1,6 +1,6 @@
 # modules/block.py — the shape every block must have.
 #the base class 
-import runtime
+from runtime import *
 class Block:
     def __init__(self, id, name, properties=None):
         self.id = id                       #each blcok will have an ID assigned from the json (because we could have the same block names but tehy will have differnt ids)

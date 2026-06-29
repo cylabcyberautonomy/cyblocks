@@ -1,7 +1,8 @@
 # main.py( normally this file will be written by the mapper but since we have not implmented that part yet we will just hardcode it for now )
 from modules.hello import Hello #these come from the mapper all the imports we need 
 from modules.world import World
-from runtime import Runtime
+from runtime import *
+
 def main():
     # list all the block and modules that will be used in this attcak 
     # Blocks instentation 
