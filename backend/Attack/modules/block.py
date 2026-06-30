@@ -7,11 +7,11 @@ class Block:
         self.name = name                   # routes: edges point at names(easier to read than using id for edges)
         self.properties = properties or {} # the inspector fields, untouched
 
-    def run(self, data_stack):                    # each block will have diffenrt specifiaction for running in their modules 
+    def run(self, ptt):                    # each block will have diffenrt specifiaction for running in their modules 
         # Data_stack must be passed onto run because the data_stack holds data needed by block
         raise NotImplementedError          
 
-    def control(self, control_queue, edges):                # each block should be able to determin its next block to run 
+    def control(self, ptt, by_name, edges):                # each block should be able to determin its next block to run 
         # control_queue must be passed onto run because the control_queue should be modified by control
         # edges are passed onto control because the block should manage control from its own edges
         # 
@@ -21,9 +21,7 @@ class Block:
         #         if e["from"] == block.name and e["label"] == label:
         #             return self.by_name.get(e["to"]) #our next block to run 
         #     return None                                     # no matching edge = at the end so stop
-
-        
-        return "next"                      # linear default
+        return resolve(self, "next", by_name, edges)
 
     def debug(self, *args):                       # introspection for logs
         return {"id": self.id, "name": self.name,

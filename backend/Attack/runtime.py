@@ -26,20 +26,22 @@ class DataStack:                           # data flow = LIFO stack (dormant now
         return not self._s
 
 #what actully gets run after the current block 
-# def resolve(block, label, by_name, edges):                # which blcok gets run next derived from the control edges 
-#     for e in edges:
-#         if e["from"] == block.name and e["label"] == label:
-#             return self.by_name.get(e["to"]) #our next block to run 
-#     return None                                     # no matching edge = at the end so stop
+ def resolve(block, label, by_name, edges):                # which blcok gets run next derived from the control edges 
+     for e in edges:
+        if e["from"] == block.name and e["label"] == label:
+            return self.by_name.get(e["to"]) #our next block to run 
+    return None                                     # no matching edge = at the end so stop
 # resolve functionality moved into block in modules
+# blocks will call the resolve function and pass in the label they want to run next so the decision making is inside the block this is just the function the call to pass control 
 
 def run(queue, blocks, edges, ptt):
    by_name = {b.name: b for b in blocks}   # we give control to each block by appending it to the control queue
    while not queue.empty():                           #while there is some blcok on the queue we keep looping but in the future we can just check if we reached the stop blcok 
         block = queue.pop()              # take who holds control
         print(f"[run] {block.name}")                  # debug to see which blcok is being run right now 
-        block.run(ptt)                           # the start block will run 
-        nxt = self.resolve(block, block.control(ptt), by_name, edges)  # find the next control blcok 
+        nxt_access = access_for(block, data_connections) #not all blocks should have acces to PTT 
+        block.run(ptt if nxt_access else None)        
+        nxt = block.control(ptt, by_name, edges)  # block resolves its OWN next (block or None)
         if nxt:
             queue.add(nxt)                # enqueue successor
     return ptt #result of attack and status will be saved in ptt so we return it at the end to know what happedn in the attack 
