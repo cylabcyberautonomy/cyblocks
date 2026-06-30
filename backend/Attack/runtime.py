@@ -26,12 +26,13 @@ class DataStack:                           # data flow = LIFO stack (dormant now
         return not self._s
 
 #what actully gets run after the current block 
-# def resolve(block, label, by_name, edges):                # which blcok gets run next derived from the control edges 
-#     for e in edges:
-#         if e["from"] == block.name and e["label"] == label:
-#             return self.by_name.get(e["to"]) #our next block to run 
-#     return None                                     # no matching edge = at the end so stop
+def resolve(block, label, by_name, edges):                # which blcok gets run next derived from the control edges 
+    for e in edges:
+        if e["from"] == block.name and e["label"] == label:
+            return by_name.get(e["to"]) #our next block to run 
+    return None                                     # no matching edge = at the end so stop
 # resolve functionality moved into block in modules
+# blocks will call the resolve function and pass in the label they want to run next so the decision making is inside the block this is just the function the call to pass control 
 
 # Run uses control queue and data stack to run the blocks until control queue is empty
 def run(blocks_list, control_queue, data_stack, edges):
