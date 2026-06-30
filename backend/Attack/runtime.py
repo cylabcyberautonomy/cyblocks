@@ -36,11 +36,12 @@ def resolve(block, label, by_name, edges):                # which blcok gets run
 
 # Run uses control queue and data stack to run the blocks until control queue is empty
 def run(blocks_list, control_queue, data_stack, edges):
-   while not control_queue.empty():                           #while there is some blcok on the queue we keep looping but in the future we can just check if we reached the stop blcok 
+    control_queue.all_blocks = blocks_list
+    while not control_queue.empty():                           #while there is some blcok on the queue we keep looping but in the future we can just check if we reached the stop blcok 
         block = control_queue.pop()              # take who holds control
         block.run(data_stack)                           # the start block will run 
         block.control(control_queue,edges)
-        while not control_queue.empty():
-            nxt = control_queue.pop()
-            nxt.run(data_stack)
-            nxt.control(control_queue,edges)
+        # while not control_queue.empty()://why two loops?
+        #     nxt = control_queue.pop()
+        #     nxt.run(data_stack)
+        #     nxt.control(control_queue,edges)
