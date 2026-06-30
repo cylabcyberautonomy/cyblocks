@@ -2,7 +2,7 @@
 from collections import deque#we will keep control of teh current blcok being run on the queue 
 #these clases will be called and run from the main.py it conatin flow and data control using the queue and stack 
 # PTT removed, was from earlier
-
+from modules import block
 class ControlQueue:                        # control flow = FIFO queue
     def __init__(self):
         self._q = deque()
@@ -33,13 +33,13 @@ class DataStack:                           # data flow = LIFO stack (dormant now
 #     return None                                     # no matching edge = at the end so stop
 # resolve functionality moved into block in modules
 
-def run(queue, blocks, edges, ptt):
-   by_name = {b.name: b for b in blocks}   # we give control to each block by appending it to the control queue
-   while not queue.empty():                           #while there is some blcok on the queue we keep looping but in the future we can just check if we reached the stop blcok 
-        block = queue.pop()              # take who holds control
-        print(f"[run] {block.name}")                  # debug to see which blcok is being run right now 
-        block.run(ptt)                           # the start block will run 
-        nxt = self.resolve(block, block.control(ptt), by_name, edges)  # find the next control blcok 
-        if nxt:
-            queue.add(nxt)                # enqueue successor
-    return ptt #result of attack and status will be saved in ptt so we return it at the end to know what happedn in the attack 
+# Run uses control queue and data stack to run the blocks until control queue is empty
+def run(blocks_list, control_queue, data_stack, edges):
+   while not control_queue.empty():                           #while there is some blcok on the queue we keep looping but in the future we can just check if we reached the stop blcok 
+        block = control_queue.pop()              # take who holds control
+        block.run(data_stack)                           # the start block will run 
+        block.control(control_queue,edges)
+        while not control_queue.empty():
+            nxt = control_queue.pop()
+            nxt.run(data_stack)
+            nxt.control(control_queue,edges)

@@ -19,9 +19,8 @@ def main():
 
     #we give teh start block to the control queue and start ruuning the attack 
     ctrl_q.start(hello1)         
-    run(ctrl_q, blocks, control_connections, ptt)   
+    run(ctrl_q, blocks, control_connections)   
 
-    print(ptt.render()) #ptt as a data file will help us print stuff to the terminal at the end (in the future this will print the status of the attck )
     #runs only when we do `python main.py`and no import main.py
-    if __name__ == "__main__":
+if __name__ == "__main__":
     main()
