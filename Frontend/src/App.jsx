@@ -4,11 +4,12 @@ import '@xyflow/react/dist/style.css'
 import { useState } from 'react'; //so we can manage the taps and switch between them 
 import HostNode from './parts/HostNode';
 import AllNodes from './parts/AllNodes';
+import AttackerNode from './parts/AttackerNode';
 //Buidling a simple UI for the app, with a tapbar, sidebar and main canves
 //This is just a placeholder for now, we will add more functionality later
 function App() {
 const Eblocks = ["Host", "Router", "Service", "Vulnerability", "Misconfiguration", "Subnet", "User", "File"];
-const Ablocks = ["Agent", "Tool"];
+const Ablocks = ["Human", "LLM", "Algorithm", "Start", "Stop", "Choice", "DataFile", "Library", "Module", "Parameter", "Condition" ];
 //Adding properties for for each block 
 const blockProperties = {
   Host: { name: "", image: "", RAM: "", disk: "" },//deleted IP becuse its dervied at compilation 
@@ -20,6 +21,22 @@ const blockProperties = {
   User:{name: "", password: "", privilege_level: ""},
   File:{name: "", path: "", sensitivity: ""}
 };
+
+
+const attackerBlockProperties = {
+  Start:     { },
+  Stop:      { debug: false },
+  Condition: { name: "", check: "" },
+  Choice:    { name: "", useLlmSuggestion: false },
+  Human:     { name: "", mode: "", prompt: "" },
+  LLM:       { name: "", role: "", model: "", apiKey: "" },
+  DataFile:  { name: "", format: "" },
+  Parameter: { name: "", instruction: "" },
+  Algorithm: { name: "", description: "" },
+  Library:   { name: "", query: "" },
+  Module:    { name: "", description: "" },
+};
+
 const blockStyles = {
   Host:            { background: "#70a6cd", icon: "🖥️" },
   Router:          { background: "#5d658f",color: "#FFF", icon: "📡" },
@@ -32,6 +49,21 @@ const blockStyles = {
   Agent:           { background: "#000000", color: "#FFF",icon: "🤖" },
   Tool:            { background: "#000000", color: "#FFF",icon: "🔧" },
 };
+const attackerBlockStyles = {
+ Start:    { accentColor: "#1e3a2f", textColor: "#5dffb0", icon: "▶",  category: "control" },
+  Stop:     { accentColor: "#3a1e1e", textColor: "#ff6b6b", icon: "■",  category: "control" },
+  Choice:   { accentColor: "#1e2a3a", textColor: "#7eb8ff", icon: "⋄",  category: "control" },
+  Human:    { accentColor: "#3d2b00", textColor: "#ffc94d", icon: "👤", category: "agent"   },
+  LLM:      { accentColor: "#2a1a4a", textColor: "#c084fc", icon: "🧠", category: "agent"   },
+  Algorithm:{ accentColor: "#0d2e2e", textColor: "#34d1c5", icon: "⚙️", category: "agent"   },
+  DataFile: { accentColor: "#1a1f3a", textColor: "#a5b4fc", icon: "📄", category: "data"    },
+  Library:  { accentColor: "#0f1f35", textColor: "#60a5fa", icon: "🗂", category: "data"    },
+  Module:   { accentColor: "#111611", textColor: "#a3e635", icon: "📦", category: "module"  },
+  Condition: { accentColor: "#3a3320", textColor: "#ffe066", icon: "◇",  category: "control" },
+  Parameter:{ accentColor: "#0f1f35", textColor: "#60a5fa", icon: "⚙",  category: "data"    },
+};
+
+
 //we need the first laod of the page to open an environment tap  so people acn drag and drop 
 const initialFile = { id: crypto.randomUUID(), name: "Env 1", type: "environment", nodes: [], edges: [] };
 const [panelPos, setPanelPos] = useState({ x: 320, y: 80 });
@@ -55,6 +87,8 @@ const setActiveEdges = (updater) => {
 };
 //const [nodes, setNodes, onNodesChange] = useNodesState([]); //from react flow that allows us to manage the state of our nodes in the canvas, we will use this to add and remove nodes from the canvas
 const blocks = activeFile?.type === "attacker" ? Ablocks : Eblocks;
+const isAttackerFile = activeFile?.type === "attacker";
+
 //const blocks = activeTap === "System" ? Eblocks : Ablocks;
 //when we drag and drop we store the value of blocks into state and we return then after droping them 
 //anything above the return are out state and helper functions and cacluated values that we will use in our app, 
@@ -111,6 +145,10 @@ const deleteSelectedNode = () => {
 };
 //THIS WILL NEED TO BE UPDATED IN THE FUTURE 
 const onConnect = (connection) => {
+ if (isAttackerFile) {
+    setActiveEdges((eds) => addEdge(connection, eds));   // already validated by isValidConnection
+    return;
+  }
   const source = nodes.find((n) => n.id === connection.source);
   const target = nodes.find((n) => n.id === connection.target);
   const result = connectionKind(source.data.blockType, target.data.blockType);
@@ -119,7 +157,7 @@ const onConnect = (connection) => {
   } else if (result.status === "ambiguous") {
     setDialog({ kind: "ambiguous", connection });
   } else {
-    setActiveEdges((eds) => addEdge(connection, eds));   // valid: add it, no stored kind (derived later)
+    setActiveEdges((eds) => addEdge(connection, eds));
   }
 };
 //a helper function to handles all types of edge connections 
@@ -207,6 +245,54 @@ const buildEnv = () => {
   }
   return env;
 }
+
+
+// Compile the attacker canvas into the agreed contract JSON.
+// Three outputs we need: blocks (id/name/propertise), control_connections (labeled), data_connections (read/write).
+const buildAttack = () => {
+  const startNode = nodes.find((n) => n.data.blockType === "Start");
+
+  const blocks_on_canvas = nodes.map((node) => ({
+    id:         node.id,                          //  routing id
+    name:       node.data.blockType,                 // type of blcok
+    properties: { ...(node.data.properties || {}) },
+  }));
+
+  // control edges route on the blcok id  
+  const control_connections = [];
+  const data_connections    = [];               
+  const branchTypes = ["Choice", "Condition"];
+
+  for (const edge of edges) {
+    const sh     = edge.sourceHandle || "";
+    const source = findNode(edge.source);
+    const target = findNode(edge.target);
+    if (!source || !target) continue;
+
+    if (sh.startsWith("cf")) {
+      // CONTROL channel: who runs next
+      const label = sh.startsWith("cf-out-") ? sh.slice("cf-out-".length) : "next";
+      const conn  = { from: edge.source, to: edge.target, label };
+      if (branchTypes.includes(source.data.blockType)) conn.backend_decides = true;
+      control_connections.push(conn);
+    } else {
+      // who can read/write the PTT/DataFile
+      //a data edge gives access. source block type decides direction:
+      // a DataFile/Parameter source is being READ; anything else writing INTO a data block is a WRITE.
+      const dataBlocks = ["DataFile", "Parameter", "Library"];
+      const access = dataBlocks.includes(source.data.blockType) ? "read" : "write";
+      data_connections.push({ from: edge.source, to: edge.target, access });
+    }
+  }
+  return {
+    name:  activeFile.name,
+    start: startNode ? startNode.id : null,
+    blocks_on_canvas,
+    control_connections,
+    data_connections,                              
+  };
+};
+const exportAttack = () => downloadJSON(`${activeFile.name}-attack.json`, buildAttack());
 const exportEnv = () => downloadJSON(`${activeFile.name}-env.json`, buildEnv());
 // Download JSON for now then it will just be given to backend --> this fucntion need to be declared fisrt so it can be used in the compile function 
 const downloadJSON = (filename, data0bj) => {
@@ -219,6 +305,7 @@ const downloadJSON = (filename, data0bj) => {
   a.click();
   URL.revokeObjectURL(url);
 };
+
 //we sill use hierachy structure for JSON file to match the examples from MHbench
 //We need to use the flat env we created and use it to compile a file for docker where the orginization is from top to bottom
 //subnets contain hosts and host contin other stuff and router could connect subnets or hosts toghther
@@ -335,7 +422,7 @@ const runEnvironment = async () => {
 const endExperiment = async () => {
   const dsl = buildDockerDsl(buildEnv());
   try {
-    const res = await fetch("http://127.0.0.1:8000/end", {
+    const res = await fetch("http://127.0.0.1:8000/quit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(dsl)
@@ -505,6 +592,7 @@ return (
       )}
     <button onClick={() => setActiveNodes(() => [])}>Clear canvas</button>
     <button onClick={exportEnv}>Export Environment </button>
+    {isAttackerFile && <button onClick={exportAttack}>Export Attack</button>}
     <div style={{ position: "relative", display: "inline-block" }}>
     <button onClick={() => setCompileMenuOpen(!compileMenuOpen)}>Compile ▾</button>
     {compileMenuOpen && (
@@ -531,17 +619,23 @@ return (
         <div className="Sidebar">
         Blocks
       {/*This will render a list of blocks in the sidebar,  react needs a key for each element in a list so we can track which elements have changed, been added or removed */}
-        {blocks.map((block) => (
+        {blocks.map((block) => {
+            const style = isAttackerFile ? attackerBlockStyles[block] : blockStyles[block];
+            const bg    = isAttackerFile ? style?.accentColor : style?.background;
+            const color = isAttackerFile ? style?.textColor   : (style?.color ?? "#000");
+            const icon  = style?.icon ?? "";
+            return (
           <div key={block}
           className="Block" 
-          style={{background: blockStyles[block].background, border: blockStyles[block].border }}
+          style={{background: bg, color }}
             draggable
             onDragStart={(event) => {
               event.dataTransfer.setData("application/reactflow", block);
             }}>
-           {blockStyles[block].icon} {block}
+           {icon} {block}
           </div>
-        ))}
+            );
+          })}
         </div>
         <div className="Canvas">
         Design Canvas
@@ -550,18 +644,47 @@ return (
         onNodesChange={(changes) => setActiveNodes((nds) => applyNodeChanges(changes, nds))} 
         edges={edges}
         nodeTypes={{Host: HostNode,
-        Subnet: AllNodes,
-        Router: AllNodes,
-        Service: AllNodes,
-        Vulnerability: AllNodes,
-        Misconfiguration: AllNodes,
-        User: AllNodes,
-        File: AllNodes,   
+                    Subnet: AllNodes,
+                    Router: AllNodes,
+                    Service: AllNodes,
+                    Vulnerability: AllNodes,
+                    Misconfiguration: AllNodes,
+                    User: AllNodes,
+                    File: AllNodes,
+                    Start:     AttackerNode,
+                    Stop:      AttackerNode,
+                    Choice:    AttackerNode,
+                    Human:     AttackerNode,
+                    LLM:       AttackerNode,
+                    Algorithm: AttackerNode,
+                    DataFile:  AttackerNode,
+                    Library:   AttackerNode,
+                    Module:    AttackerNode, 
+                    Condition: AttackerNode,
+                    Parameter: AttackerNode,
         }}
         defaultEdgeOptions={{type: 'step'}}
         isValidConnection={(connection)=> {
-        const sourceNode = nodes.find((n) => n.id === connection.source);
+   //need a specific handel for agents paramesters 
+                if (isAttackerFile) 
+{
+    const s = connection.sourceHandle || "";
+    const t = connection.targetHandle || "";
+    const srcNode = nodes.find((n) => n.id === connection.source);
 
+    // param-in is a valid target, but only from a Parameter
+    if (srcNode?.data.blockType === "Parameter") return t === "param-in";
+    if (t === "param-in") return srcNode?.data.blockType === "Parameter";
+
+    // everything else
+    const sourceIsOut = s.startsWith("cf-out") || s === "data-out";
+    const targetIsIn  = t === "cf-in" || t === "data-in";
+    if (!sourceIsOut || !targetIsIn) return false;
+
+    // and stay in one lane
+    return (s.startsWith("cf") ? "control" : "data") === (t.startsWith("cf") ? "control" : "data");
+        }
+        const sourceNode = nodes.find((n) => n.id === connection.source);
         // Each named handle only accepts one block type
         const handleAccepts = {
           "host-subnet":  "Subnet",
@@ -587,16 +710,41 @@ return (
           const name = event.dataTransfer.getData("application/reactflow"); //this will get the data that we set when we started dragging the block, which is the name of the block
           const bounds = event.currentTarget.getBoundingClientRect();
           const position = { x: event.clientX - bounds.left, y:event.clientY - bounds.top };// need to calculate the position of the node based on the position of the mouse and the position of the canvas, because the position of the mouse is relative to the entire page, but we need the position of the node to be relative to the canvas
-          const s = blockStyles[name];
-          const newNode = {//the new node that we will add to the canvas, it needs to have an id, a position and some data, we will use the name of the block as the label of the node
-          id: crypto.randomUUID(),
-          type:name,
-          position, 
-          data:  { label: makeLabel(name, ""), blockType: name, properties: { ...blockProperties[name] } },//start stating the block type to help determine the kind of connection we have 
-          //style: { background: s.background, border: s.border, borderRadius: 8, padding: 10 },
-          ...(name !== "Host" && { style: { background: s.background, color: "#FFF"} }),
+          let newNode;
 
-        };
+          if (isAttackerFile) {
+            //style for the attacker 
+            const aStyle = attackerBlockStyles[name];
+            newNode = {
+              id:       crypto.randomUUID(),
+              type:     name,
+              position,
+              data: {
+                label:       name,
+                blockType:   name,
+                accentColor: aStyle?.accentColor,
+                textColor:   aStyle?.textColor,
+                icon:        aStyle?.icon,
+                category:    aStyle?.category,
+                properties:  { ...attackerBlockProperties[name] },
+              },
+            };
+          } else {
+            const eStyle = blockStyles[name];
+            newNode = {
+              id:       crypto.randomUUID(),
+              type:     name,
+              position,
+              data: {
+                label:      makeLabel(name, ""),
+                blockType:  name,
+                properties: { ...blockProperties[name] },
+              },
+              ...(name !== "Host" && {
+                style: { background: eStyle?.background, color: "#FFF" },
+              }),
+            };
+          }
           setActiveNodes((current) => [...current, newNode]);
         }}
         >
