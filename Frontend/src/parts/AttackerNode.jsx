@@ -1,15 +1,9 @@
-// AttackerNode.jsx
+
 // Generic custom node for all attacker-panel blocks.
-//
-// Port convention (locked in from architecture decisions):
+// Port explanation 
 //   Control flow  → vertical ports, triangular clip (top = in, bottom = out)
 //   Data flow     → horizontal ports, circular (left = in, right = out)
-//
-// Shape varies by category:
-//   control  → sharp rectangle  (structural skeleton of the graph)
-//   agent    → rounded rect     (agents feel "alive")
-//   data     → diamond corners  (data is a resource, distinct from env File)
-//   module   → default rect
+//   Parameter     → middle port in LLM blocks, circular ( only in)
 
 import { Handle, Position } from '@xyflow/react';
 // Which ports each block exposes.
@@ -17,9 +11,9 @@ import { Handle, Position } from '@xyflow/react';
 //   dataIn = data-in (left circle)         dataOut = data-out (right circle)
 const PORTS = {
   Start:     { cfIn: false, cfOut: ["next"], dataIn: false, dataOut: false },
-  Stop:      { cfIn: true,  cfOut: [],        dataIn: false, dataOut: false },
+  Stop:      { cfIn: true,  cfOut: [],        dataIn: false, dataOut: false },//no next blcok  to go to 
   Condition: { cfIn: true,  cfOut: ["out"],   dataIn: true,  dataOut: false, branch: ["true", "false"] },
-  Choice:    { cfIn: true,  cfOut: ["out"],   dataIn: true,  dataOut: false, branch: ["continue", "override", "llm"] },
+  Choice:    { cfIn: true,  cfOut: ["out"],   dataIn: true,  dataOut: false, branch: ["continue", "override", "llm "] },
   Human:     { cfIn: true,  cfOut: ["next"],  dataIn: true,  dataOut: true  },
   LLM:       { cfIn: true,  cfOut: ["next"],  dataIn: true,  dataOut: true,  paramIn: true   },
   DataFile:  { cfIn: false, cfOut: [],         dataIn: true,  dataOut: true  },
@@ -60,8 +54,7 @@ const AttackerNode = ({ data }) => {
         ...shapeStyle,
       }}
     >
-      {/* ── Control-flow ports (vertical, triangular) ── */}
-{/* Ports come from the per-block spec; unlisted blocks get all four. */}
+      {/* Control-flow ports (vertical, triangular)*/}
       {(() => {
         const spec = PORTS[blockType] || { cfIn: true, cfOut: ["next"], dataIn: true, dataOut: true };
         return (
@@ -73,7 +66,7 @@ const AttackerNode = ({ data }) => {
             {spec.paramIn && (
               <Handle id="param-in" type="target" position={Position.Top}
                 style={{ ...handleBase, top: "75%", borderRadius: "50%",
-                        background: textColor }} />   // filled = config, distinct from PTT's outline circle
+                        background: textColor }} />   //distinct from PTT's outline circle its in the middle and filled with textColor
             )}
             {spec.cfOut.map((label, i) => (
               <Handle key={label} id={`cf-out-${label}`} type="source" position={Position.Bottom}
@@ -88,7 +81,7 @@ const AttackerNode = ({ data }) => {
           </>
         );
       })()}
-      {/* ── Block label ── */}
+      {/*Block labels*/}
       <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
         <span style={{ fontSize: 15, lineHeight: 1 }}>{icon}</span>
         <div>
