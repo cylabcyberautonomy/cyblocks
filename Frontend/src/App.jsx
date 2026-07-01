@@ -306,6 +306,25 @@ const downloadJSON = (filename, data0bj) => {
   URL.revokeObjectURL(url);
 };
 
+
+
+const runAttack = async () => {
+  const attack = buildAttack();          // already a JS object
+  try {
+    const res = await fetch("http://127.0.0.1:8000/run-attack", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attack, target: envProject }),      // object -> text, here
+    });
+    const data = await res.json();
+    if (!res.ok) { alert("Attack failed: " + (data.error || res.status)); return; }
+    alert("Attack started: " + data.status);
+  } catch (err) {
+    alert("Could not reach backend at :8000 — is backend running?");
+  }
+};
+
+
 //we sill use hierachy structure for JSON file to match the examples from MHbench
 //We need to use the flat env we created and use it to compile a file for docker where the orginization is from top to bottom
 //subnets contain hosts and host contin other stuff and router could connect subnets or hosts toghther
@@ -390,6 +409,31 @@ const compile = (targetName) => {
   }
   target(env);                         
 };
+
+
+
+const compileAttack = async () => {
+  const attack = buildAttack();
+  try {
+    const res = await fetch("http://127.0.0.1:8000/compile-attack", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(attack),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert("Compile failed: " + (data.error || res.status)); console.error(data.traceback); return; }
+    const blob = new Blob([data.main_py], { type: "text/x-python" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "main.py"; a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert("Could not reach backend at :8000 — is backend running?");
+    console.error(err);
+  }
+};
+
+
 
 //  This function is called by our button to facilate the debloying and compiling to docker (connecting the frontend with the backend)
 //  Flow: flat env (buildEnv) -> docker DSL (buildDockerDsl) -> backend /deploy (which compiles the
@@ -593,6 +637,7 @@ return (
     <button onClick={() => setActiveNodes(() => [])}>Clear canvas</button>
     <button onClick={exportEnv}>Export Environment </button>
     {isAttackerFile && <button onClick={exportAttack}>Export Attack</button>}
+    {isAttackerFile && <button onClick={compileAttack}>Compile Attack</button>}
     <div style={{ position: "relative", display: "inline-block" }}>
     <button onClick={() => setCompileMenuOpen(!compileMenuOpen)}>Compile ▾</button>
     {compileMenuOpen && (
@@ -603,7 +648,7 @@ return (
     </div>
     <button onClick={runEnvironment}>start Experiment</button>
     <button onClick={endExperiment}>End Experiment</button>
-
+      
     <button onClick={loadDemoEnvironment}>Load Demo</button>
     </div>
      <div className="Toolbar">
