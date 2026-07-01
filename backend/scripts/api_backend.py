@@ -61,14 +61,12 @@ def do_compile(raw_env: dict) -> dict:
     build = write_artifact(dsl, compose_dict, dockerfile_list, routes)
     return {"project": common.project_name_from_ide_dict(dsl), "build": str(build), "dsl": dsl}
 
-
 def do_compile_attack(attack: dict) -> dict:
-    out = os.path.join(os.path.dirname(__file__), "..", "generated", "main.py")
+    out = os.path.join(os.path.dirname(__file__), "..", "Attack", "main.py")   # was ../generated
     run_mapper(out, out + ".pyimport", out + ".toolimport", attack)
     with open(out) as f:
         return {"project": attack.get("name", "attack"), "main_py": f.read()}
 
-        
 def do_deploy(raw_env: dict) -> dict:
     # Always compile first so build/ matches the request, then deploy (needs Docker).
     do_compile(raw_env)
