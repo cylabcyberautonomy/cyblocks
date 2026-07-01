@@ -45,6 +45,10 @@ from compiler.routes import build_routes
 from compiler.write import write_artifact
 from IDE_compile_to_DockerFiles import build_compose
 
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "Attack"))
+from mapper import run_mapper
+
 HOST, PORT = "127.0.0.1", 8000
 
 
@@ -58,6 +62,13 @@ def do_compile(raw_env: dict) -> dict:
     return {"project": common.project_name_from_ide_dict(dsl), "build": str(build), "dsl": dsl}
 
 
+def do_compile_attack(attack: dict) -> dict:
+    out = os.path.join(os.path.dirname(__file__), "..", "generated", "main.py")
+    run_mapper(out, out + ".pyimport", out + ".toolimport", attack)
+    with open(out) as f:
+        return {"project": attack.get("name", "attack"), "main_py": f.read()}
+
+        
 def do_deploy(raw_env: dict) -> dict:
     # Always compile first so build/ matches the request, then deploy (needs Docker).
     do_compile(raw_env)
@@ -87,8 +98,7 @@ def do_end(payload: dict) -> dict:
     return result
 
 
-POST_ROUTES = {"/compile": do_compile, "/deploy": do_deploy, "/quit": do_quit, "/end": do_end}
-
+POST_ROUTES = {"/compile": do_compile, "/deploy": do_deploy, "/quit": do_quit, "/end": do_end, "/compile-attack": do_compile_attack}
 
 # --- HTTP plumbing ---------------------------------------------------------
 class Handler(BaseHTTPRequestHandler):
