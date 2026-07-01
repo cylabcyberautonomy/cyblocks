@@ -3,35 +3,34 @@ from runtime import *
 def name_to_block_init(id, name, properties=None):
     match name:
         case "LLM":
-            LLM(id, name, properties)
+            return LLM(id, name, properties)
         case "Human":
-            Human(id, name, properties)
-        case "start":
-            start(id, name, properties)
-        case "stop":
-            stop(id, name, properties)
-        case "choice":
-            choice(id, name, properties)
-        case "Datafile":
-            Datafile(id, name, properties)
+            return Human(id, name, properties)
+        case "Start":
+            return Start(id, name, properties)
+        case "Stop":
+            return Stop(id, name, properties)
+        case "Choice":
+            return Choice(id, name, properties)
+        case "DataFile":
+            return DataFile(id, name, properties)
         case "Algorithm":
-            Algorithm(id, name, properties)
+            return Algorithm(id, name, properties)
         case "Library":
-            Library(id, name, properties)
+            return Library(id, name, properties)
         case "Module":
-            Module(id, name, properties)
+            return Module(id, name, properties)
         case "Condition":
-            Condition(id, name, properties)
+            return Condition(id, name, properties)
         case "Parameter":
-            Parameter(id, name, properties)
-
-
+            return Parameter(id, name, properties)
+        case _:           raise ValueError(f"Unknown block type: {name!r}")
 
 
 def json_to_blocks(JSON:list):
     blocks = []
     for i in JSON['blocks_on_canvas']:
-        blocks.append(name_to_block_init(i['id'],i['name'],i['properties']))
+        blocks.append(name_to_block_init(i['id'], i['name'], i['properties']))
     return blocks
     
 def run_mapper(attcker_file : str, pyimport_file : str, toolimport_file : str, JSON:list):

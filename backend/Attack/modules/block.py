@@ -12,11 +12,14 @@ class Block:
         raise NotImplementedError          
 
     def control(self, control_queue, edges):                # each block should be able to determin its next block to run 
-        by_name = {b.name: b for b in control_queue.all_blocks}
-        nxt = resolve(self, "next", by_name, edges)
+        by_id = {b.id: b for b in control_queue.all_blocks}
+        nxt = resolve(self, "next", by_id, edges)
         if nxt:
             control_queue.add(nxt)
 
     def debug(self, *args):                       # introspection for logs
         return {"id": self.id, "name": self.name,
                 "type": type(self).__name__, "props": self.properties}
+
+    def __repr__(self):#so we dont just print the memory address of the stack
+        return f"{type(self).__name__}({self.id!r}, {self.name!r}, {self.properties!r})"    

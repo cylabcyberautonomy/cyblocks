@@ -14,6 +14,8 @@ class ControlQueue:                        # control flow = FIFO queue
         return self._q.popleft()
     def empty(self):
         return not self._q
+    def __repr__(self):#so we dont just print the memory address of the stack we want to print the contents of the stack
+        return "ControlQueue()"     
 
 class DataStack:                           # data flow = LIFO stack (dormant now)
     def __init__(self):
@@ -24,12 +26,14 @@ class DataStack:                           # data flow = LIFO stack (dormant now
         return self._s.pop()
     def empty(self):
         return not self._s
+    def __repr__(self):#so we dont just print the memory address of the stack we want to print the contents of the stack
+        return "DataStack()"
 
 #what actully gets run after the current block 
-def resolve(block, label, by_name, edges):                # which blcok gets run next derived from the control edges 
+def resolve(block, label, by_id, edges):                # which blcok gets run next derived from the control edges 
     for e in edges:
-        if e["from"] == block.name and e["label"] == label:
-            return by_name.get(e["to"]) #our next block to run 
+        if e["from"] == block.id and e["label"] == label:
+            return by_id.get(e["to"]) #our next block to run 
     return None                                     # no matching edge = at the end so stop
 # resolve functionality moved into block in modules
 # blocks will call the resolve function and pass in the label they want to run next so the decision making is inside the block this is just the function the call to pass control 
@@ -37,6 +41,10 @@ def resolve(block, label, by_name, edges):                # which blcok gets run
 # Run uses control queue and data stack to run the blocks until control queue is empty
 def run(blocks_list, control_queue, data_stack, edges):
     control_queue.all_blocks = blocks_list
+    #we need to seed teh queue with the start block so we can start the attack
+    start = next((b for b in blocks_list if type(b).__name__ == "Start"), None)
+    if start:
+        control_queue.start(start)
     while not control_queue.empty():                           #while there is some blcok on the queue we keep looping but in the future we can just check if we reached the stop blcok 
         block = control_queue.pop()              # take who holds control
         block.run(data_stack)                           # the start block will run 
@@ -45,3 +53,5 @@ def run(blocks_list, control_queue, data_stack, edges):
         #     nxt = control_queue.pop()
         #     nxt.run(data_stack)
         #     nxt.control(control_queue,edges)
+
+
