@@ -26,6 +26,8 @@ class DataStack:                           # data flow = LIFO stack (dormant now
         return self._s.pop()
     def empty(self):
         return not self._s
+    def peek(self): 
+        return self._s[-1]      # read the shared PTT without removing it
     def __repr__(self):#so we dont just print the memory address of the stack we want to print the contents of the stack
         return "DataStack()"
 
@@ -42,6 +44,9 @@ def resolve(block, label, by_id, edges):                # which blcok gets run n
 def run(blocks_list, control_queue, data_stack, edges):
     control_queue.all_blocks = blocks_list
     #we need to seed teh queue with the start block so we can start the attack
+    ptt = next((b for b in blocks_list if type(b).__name__ == "DataFile"), None)
+    if ptt:
+        data_stack.push(ptt)            # PTT on the stack before anything runs
     start = next((b for b in blocks_list if type(b).__name__ == "Start"), None)
     if start:
         control_queue.start(start)
