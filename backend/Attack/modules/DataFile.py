@@ -1,75 +1,106 @@
-# datafile.py — the DataFile's task-tree format (PentestGPT's PTT).
-# Reasoning grows the tree; Generation reads tasks; Execute runs them;
-# Parsing writes results back. `goal` rides alongside so Condition can test "reached?".
+#For now it holds the shared attack state: PentestGPT's Pentesting Task Tree (PTT).
+#Pure data. Holds no control. The blocks read/write it via the data stack at runtime.
+from modules.block import Block
+
 
 class TaskNode:
-    def __init__(self, id, title, parent=None):
-        self.id = id                 # stable handle; blocks reference a task by id
-        self.title = title           # the task, e.g. "scan 10.0.0.5 for open ports"
-        self.parent = parent         # upward link to root, for hierarchy
-        self.children = []           # subtasks Reasoning breaks this into
-        self.status = "todo"         # todo | doing | done | skipped  -> drives "what's next"
-        self.result = None           # Parsing writes the condensed finding here
+    def __init__(self, id, title, status="todo", result=None, is_goal=False):
+        self.id = id              # address for blcoks to find teh task node and update it  
+        self.title = title        # human/LLM-readable task description(since LLM in PENTESTGPT raeds natural language and not the id)
+        self.status = status      
+        self.result = result      # findings once we run the attack 
+        self.children = []        # sub-tasks to have the tree structure 
+        self.is_goal = is_goal    # objective of the attack 
 
-class PTT:
-    def __init__(self, objective, goal=None):
-        self.objective = objective                       # the mission, written by whoever seeds
-        self.goal = goal                                 # human's target; Condition tests against it
-        self._counter = 0
-        self.root = TaskNode(self._new_id(), objective)  # root task = the objective
-        self.index = {self.root.id: self.root}           # id -> node, O(1) lookup for any block
+    def render(self, depth=0): # we need  a way to walk the tree structure of the PTT
+        pad = "  " * depth
+        star = " *GOAL*" if self.is_goal else ""       # show goal in the text the LLM reads
+        line = f"{pad}[{self.status}] {self.id} {self.title}{star}"
+        if self.result:
+            line += f"  -> {self.result}"
+        out = [line]
+        for c in self.children:
+            out.append(c.render(depth + 1))#this gets fed into the LLM as context so it can understand the current state of the attack and what to do next
+        return "\n".join(out)
 
-    # --- ids ---
-    def _new_id(self):
-        self._counter += 1
-        return f"t{self._counter}"
 
-    # --- the parts Reasoning uses to GROW the tree ---
-    def add_task(self, parent_id, title):
-        parent = self.index[parent_id]
-        node = TaskNode(self._new_id(), title, parent)
-        parent.children.append(node)
-        self.index[node.id] = node
-        return node.id
+class DataFile(Block):#this is the shared data structure that holds the PTT and is passed around the blocks via the data stack
+    def __init__(self, id, name, properties=None):
+        super().__init__(id, name, properties)
+        self.root = TaskNode("0", "attack root")#our root that holds the entire tree structure 
+        self._auto = 0 # auto-incrementing id for tasks
 
-    def set_status(self, task_id, status):
-        self.index[task_id].status = status
-
-    # --- the part Parsing uses to RECORD findings ---
-    def set_result(self, task_id, text):
-        self.index[task_id].result = text
-
-    # --- the parts every block uses to READ ---
-    def get(self, task_id):
-        return self.index[task_id]
-
-    def next_todo(self):                                 # first actionable (leaf) task
-        for node in self._walk(self.root):
-            if node.status == "todo" and not node.children:
-                return node
+# we need to be able to find a node by id because the LLM will return a node id and we need to find that node in the PTT to update its status or result
+    def find(self, node_id, node=None):#depth-first search for a node by id, starting at the root
+        node = node or self.root
+        if node.id == node_id:
+            return node
+        for c in node.children:
+            hit = self.find(node_id, c)
+            if hit:
+                return hit
         return None
 
-    def _walk(self, node):
+#we need to be able to add a task to the PTT and we need to be able to find the parent node to add the task to.
+#we  need to be able to generate a unique id for the new task if one is not provided. 
+#we  need to be able to mark a task as a goal so that the LLM knows what the objective of the attack is.
+    def add_task(self, title, parent_id="0", task_id=None, is_goal=False):
+        parent = self.find(parent_id)
+        if parent is None:
+            raise ValueError(f"no such parent id: {parent_id!r}")
+        if task_id is None:
+            self._auto += 1
+            task_id = f"auto-{self._auto}"
+        node = TaskNode(task_id, title, is_goal=is_goal)#objective of the  atatck ?
+        parent.children.append(node)
+        return task_id
+# report the status of the task to the PTT so that the LLM can understand what tasks have been completed and what tasks are still to be done
+    def set_status(self, node_id, status):
+        node = self.find(node_id)
+        if node is None:
+            raise ValueError(f"no such node id: {node_id!r}")
+        node.status = status
+#this is differnt than set_status because it is the result of the overall attack and not the status of individule task
+    def set_result(self, node_id, result):
+        node = self.find(node_id)
+        if node is None:
+            raise ValueError(f"no such node id: {node_id!r}")
+        node.result = result
+
+    def mark_goal(self, node_id):
+# designate an existing node as the objective (goal of the attack)
+        node = self.find(node_id)
+        if node is None:
+            raise ValueError(f"no such node id: {node_id!r}")
+        node.is_goal = True
+
+    def _walk(self, node=None):
+# yield every node in the tree, depth-first (helper for the checks below)
+        node = node or self.root
         yield node
-        for child in node.children:
-            yield from self._walk(child)
+        for c in node.children:
+            yield from self._walk(c)
 
-    # --- goal tracking: one small thing on top of the tree, for Condition ---
+    def next_todo(self):
+# first still-unfinished REAL task (skip the root since its not a task )
+        for n in self._walk():
+            if n is self.root:
+                continue
+            if n.status == "todo":
+                return n
+        return None
+
     def goal_reached(self):
-        if not self.goal:
-            return False
-        return any(n.result and self.goal in n.result for n in self._walk(self.root))
+        #reached when goal-flagged node is done not just reached 
+        for n in self._walk():
+            if n.is_goal and n.status == "done":
+                return True
+        return False
 
-    # --- readable dump for debug + Stop's report ---
     def render(self):
-        lines = [f"OBJECTIVE: {self.objective}", f"GOAL: {self.goal}"]
-        marks = {"todo": "[ ]", "doing": "[~]", "done": "[x]", "skipped": "[-]"}
-        def show(node, depth):
-            line = "  " * depth + f"{marks[node.status]} {node.id}: {node.title}"
-            if node.result:
-                line += f"  -> {node.result}"
-            lines.append(line)
-            for c in node.children:
-                show(c, depth + 1)
-        show(self.root, 0)
-        return "\n".join(lines)
+        return self.root.render()
+        
+    def run(self, data_stack):
+        return None
+    def control(self, control_queue, edges):
+        return None#becuse there is no control passed here 
