@@ -29,9 +29,9 @@ const attackerBlockProperties = {
   Condition: { name: "", check: "" },
   Choice:    { name: "", useLlmSuggestion: false },
   Human:     { name: "", mode: "", prompt: "" },
-  LLM:       { name: "", role: "", model: "", apiKey: "" },
+  LLM:       { name: "", model: "", apiKey: "" },
   DataFile:  { name: "", format: "" },
-  Parameter: { name: "", instruction: "" },
+  Parameter: {role: "", instruction: "" },
   Algorithm: { name: "", description: "" },
   Library:   { name: "", query: "" },
   Module:    { name: "", description: "" },
@@ -591,15 +591,23 @@ return (
       <button onClick={deleteSelectedNode}>
   Delete block
       </button>
-      {Object.keys(selectedNode.data.properties || {}).map((key) => (
-        <div key={key}>
-          <label>{key}</label>
-          <input
-            value={selectedNode.data.properties[key]}
-            onChange={(e) => updateNodeProperty(selectedNode.id, key, e.target.value)}
-          />
-        </div>
-      ))}
+{Object.keys(selectedNode.data.properties || {}).map((key) => (
+  <div key={key}>
+    <label>{key}</label>
+    {key === "role" ? (
+      <select value={selectedNode.data.properties[key]}
+        onChange={(e) => updateNodeProperty(selectedNode.id, key, e.target.value)}>
+        <option value="">-- choose role --</option>
+        <option value="Reasoning">Reasoning</option>
+        <option value="Generation">Generation</option>
+        <option value="Parsing">Parsing</option>
+      </select>
+    ) : (
+      <input value={selectedNode.data.properties[key]}
+        onChange={(e) => updateNodeProperty(selectedNode.id, key, e.target.value)} />
+    )}
+  </div>
+))}
     </div>
   </div>
 )}
