@@ -32,10 +32,27 @@ def json_to_blocks(JSON:list):
     for i in JSON['blocks_on_canvas']:
         blocks.append(name_to_block_init(i['id'], i['name'], i['properties']))
     return blocks
-    
+
+def get_parameters(blocks, data_connections):
+    # index blocks by id so we can look up both ends of each data edge(to load parameters into agents)
+    print("DATA CONNS:", data_connections) 
+    by_id = {b.id: b for b in blocks}
+    for edge in data_connections:
+        src = by_id.get(edge["from"])
+        dst = by_id.get(edge["to"])
+        if src is None or dst is None:
+            continue
+        # a Parameter feeding an LLM
+        if type(src).__name__ == "Parameter" and type(dst).__name__ == "LLM":
+            dst.properties["instruction"] = src.properties.get("instruction", "")
+        elif type(dst).__name__ == "Parameter" and type(src).__name__ == "LLM":
+            src.properties["instruction"] = dst.properties.get("instruction", "")
+
+
 def run_mapper(attcker_file : str, pyimport_file : str, toolimport_file : str, JSON:list):
     blocks = json_to_blocks(JSON)
     control_queue = ControlQueue()
+    get_parameters(blocks, JSON['data_connections'])
     data_stack = DataStack()
     edges = JSON['control_connections']
     # def run(blocks_list, control_queue, data_stack, edges):
