@@ -74,6 +74,11 @@ def _link_cli_plugins(docker_config: Path) -> None:
             except OSError:
                 pass
 
+#This function configures the Docker CLI environment variables and settings.
+#the CLI needs to be configured to use the isolated Docker environment.
+#the CLI also needs to know where the isolated Docker environment is located.(The socket path)
+#it reads this path from the DOCKER_HOST environment variable.
+#if the DOCKER_HOST environment variable is not set this function is supposed to figure out the right socket patha and set it for the OS
 
 def configure_docker_cli_environment() -> None:
     system = platform.system().lower()
@@ -95,6 +100,9 @@ def configure_docker_cli_environment() -> None:
         rootless_socket = Path(runtime_dir) / "docker.sock" if runtime_dir else None
         if rootless_socket and rootless_socket.exists() and not Path("/var/run/docker.sock").exists():
             os.environ["DOCKER_HOST"] = f"unix://{rootless_socket}"
+            return
+        if Path("/var/run/docker.sock").exists():# this fixes deploying issuse with wsl and linux because it uses rootfull socket which is the default 
+            os.environ["DOCKER_HOST"] = "unix:///var/run/docker.sock"
             return
         raise RuntimeError("No Docker socket found. Please set DOCKER_HOST or DOCKER_CONTEXT environment variable.")
 
