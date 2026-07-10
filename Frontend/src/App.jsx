@@ -31,7 +31,7 @@ const attackerBlockProperties = {
   Human:     { name: "", mode: "", prompt: "" },
   LLM:       { name: "", model: "", apiKey: "" },
   DataFile:  { name: "", format: "" },
-  Parameter: {role: "", instruction: "" },
+  Parameter: { role: "", instruction: "" },
   Algorithm: { name: "", description: "" },
   Library:   { name: "", query: "" },
   Module:    { name: "", description: "" },
@@ -324,6 +324,21 @@ const runAttack = async () => {
   }
 };
 
+async function quitAttacker() {
+  try {
+    const res = await fetch("http://127.0.0.1:8000/quit-attacker", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildEnv()),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "attacker teardown failed");
+    alert(`Attacker down: ${data.attacker}`);
+  } catch (e) {
+    alert(`Attacker teardown failed: ${e.message}`);
+  }
+}
+
 
 //we sill use hierachy structure for JSON file to match the examples from MHbench
 //We need to use the flat env we created and use it to compile a file for docker where the orginization is from top to bottom
@@ -484,6 +499,21 @@ const endExperiment = async () => {
     console.error(err);
   }
 };
+//for our attacker continer 
+async function runAttacker() {
+  try {
+    const res = await fetch("http://127.0.0.1:8000/deploy-attacker", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildEnv()),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "attacker deploy failed");
+    alert(`Attacker deployed: ${data.attacker} on ${data.network}`);
+  } catch (e) {
+    alert(`Attacker deploy failed: ${e.message}`);
+  }
+}
 
 //Just an example of an environmet to test compilation faster 
 const loadDemoEnvironment = () => {
@@ -591,23 +621,33 @@ return (
       <button onClick={deleteSelectedNode}>
   Delete block
       </button>
-{Object.keys(selectedNode.data.properties || {}).map((key) => (
-  <div key={key}>
-    <label>{key}</label>
-    {key === "role" ? (
-      <select value={selectedNode.data.properties[key]}
-        onChange={(e) => updateNodeProperty(selectedNode.id, key, e.target.value)}>
-        <option value="">-- choose role --</option>
-        <option value="Reasoning">Reasoning</option>
-        <option value="Generation">Generation</option>
-        <option value="Parsing">Parsing</option>
-      </select>
-    ) : (
-      <input value={selectedNode.data.properties[key]}
-        onChange={(e) => updateNodeProperty(selectedNode.id, key, e.target.value)} />
-    )}
-  </div>
-))}
+{Object.keys(selectedNode.data.properties || {}).map((key) => {
+  const dropdownOptions = {
+    role: ["Reasoning", "Generation", "Parsing"],
+    mode: ["Editor", "Reviewer", "Executor"],
+  };
+  return (
+    <div key={key}>
+      <label>{key}</label>
+      {dropdownOptions[key] ? (
+        <select
+          value={selectedNode.data.properties[key]}
+          onChange={(e) => updateNodeProperty(selectedNode.id, key, e.target.value)}
+        >
+          <option value="">-- choose {key} --</option>
+          {dropdownOptions[key].map((opt) => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
+      ) : (
+        <input
+          value={selectedNode.data.properties[key]}
+          onChange={(e) => updateNodeProperty(selectedNode.id, key, e.target.value)}
+        />
+      )}
+    </div>
+  );
+})}
     </div>
   </div>
 )}
@@ -656,7 +696,8 @@ return (
     </div>
     <button onClick={runEnvironment}>start Experiment</button>
     <button onClick={endExperiment}>End Experiment</button>
-      
+    <button onClick={runAttacker}>Deploy Attacker</button>
+    <button onClick={quitAttacker}>Quit Attacker</button>
     <button onClick={loadDemoEnvironment}>Load Demo</button>
     </div>
      <div className="Toolbar">
