@@ -12,8 +12,8 @@ import { Handle, Position } from '@xyflow/react';
 const PORTS = {
   Start:     { cfIn: false, cfOut: ["next"], dataIn: false, dataOut: false },
   Stop:      { cfIn: true,  cfOut: [],        dataIn: false, dataOut: false },//no next blcok  to go to 
-  Condition: { cfIn: true,  cfOut: ["out"],   dataIn: true,  dataOut: false, branch: ["true", "false"] },
-  Choice:    { cfIn: true,  cfOut: ["out"],   dataIn: true,  dataOut: false, branch: ["continue", "override", "llm "] },
+  Condition: { cfIn: true,  cfOut: [],  dataIn: true,  dataOut: false, branch: ["goal_reached", "continue"] },
+  Choice:    { cfIn: true,  cfOut: [],  dataIn: true,  dataOut: false, branch: ["continue", "override", "suggest"] },
   Human:     { cfIn: true,  cfOut: ["next"],  dataIn: true,  dataOut: true  },
   LLM:       { cfIn: true,  cfOut: ["next"],  dataIn: true,  dataOut: true,  paramIn: true   },
   DataFile:  { cfIn: false, cfOut: [],         dataIn: true,  dataOut: true  },
@@ -74,6 +74,20 @@ const AttackerNode = ({ data }) => {
                   left: `${((i + 1) / (spec.cfOut.length + 1)) * 100}%`,
                   clipPath: "polygon(50% 100%, 0% 0%, 100% 0%)", borderRadius: 0 }} />
             ))}
+            {(spec.branch || []).map((label, i) => {
+              const left = `${((i + 1) / (spec.branch.length + 1)) * 100}%`;
+              return (
+                <div key={label}>
+                  <Handle id={`cf-out-${label}`} type="source" position={Position.Bottom}
+                    style={{ ...handleBase, left,
+                      clipPath: "polygon(50% 100%, 0% 0%, 100% 0%)", borderRadius: 0 }} />
+                  <span style={{ position: "absolute", bottom: 6, left,
+                    transform: "translateX(-50%)", fontSize: 6, lineHeight: 1,
+                    color: textColor, opacity: 0.7, whiteSpace: "nowrap",
+                    pointerEvents: "none" }}>{label}</span>
+                </div>
+              );
+            })}
             {spec.dataIn  && <Handle id="data-in"  type="target" position={Position.Left}
               style={{ ...handleBase, borderRadius: "50%" }} />}
             {spec.dataOut && <Handle id="data-out" type="source" position={Position.Right}
