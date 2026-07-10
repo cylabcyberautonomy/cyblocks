@@ -43,14 +43,19 @@ def resolve(block, label, by_id, edges):                # which blcok gets run n
 # Run uses control queue and data stack to run the blocks until control queue is empty
 def run(blocks_list, control_queue, data_stack, edges):
     control_queue.all_blocks = blocks_list
-    #we need to seed teh queue with the start block so we can start the attack
+    #we need to seed the queue with the start block so we can start the attack
     ptt = next((b for b in blocks_list if type(b).__name__ == "DataFile"), None)
     if ptt:
         data_stack.push(ptt)            # PTT on the stack before anything runs
     start = next((b for b in blocks_list if type(b).__name__ == "Start"), None)
     if start:
         control_queue.start(start)
+    steps = 0
     while not control_queue.empty():                           #while there is some blcok on the queue we keep looping but in the future we can just check if we reached the stop blcok 
+        steps += 1
+        if steps > 50:
+            print("[runtime] step cap reached (50) — stopping to avoid infinite loop")#to avoid infinite loops if the user did not include a stop block or the goal was never reached 
+            break
         block = control_queue.pop()              # take who holds control
         block.run(data_stack)                           # the start block will run 
         block.control(control_queue,edges)
