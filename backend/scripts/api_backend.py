@@ -49,6 +49,8 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "Attack"))
 from mapper import run_mapper
 
+import deploy_attacker
+
 HOST, PORT = "127.0.0.1", 8000
 
 
@@ -74,6 +76,16 @@ def do_deploy(raw_env: dict) -> dict:
     return deploy_docker.deploy(dsl, docker=common.docker_bin(), project_override=None)
 
 
+def do_deploy_attacker(raw_env: dict) -> dict:
+    # Normalize to the canonical nested DSL first (same as do_deploy), so the attacker
+    # reads the same shape the environment was deployed from.
+    dsl = to_dsl(raw_env)
+    return deploy_attacker.deploy_attacker(dsl, docker=common.docker_bin())
+
+def do_quit_attacker(raw_env: dict) -> dict:
+    dsl = to_dsl(raw_env)
+    return deploy_attacker.quit_attacker(dsl, docker=common.docker_bin())
+    
 def do_quit(payload: dict) -> dict:
     # Accept {"project": "..."} or a full env; tear the project's stack down.
     project = payload["project"] if "project" in payload else common.project_name_from_ide_dict(to_dsl(payload))
@@ -96,7 +108,7 @@ def do_end(payload: dict) -> dict:
     return result
 
 
-POST_ROUTES = {"/compile": do_compile, "/deploy": do_deploy, "/quit": do_quit, "/end": do_end, "/compile-attack": do_compile_attack}
+POST_ROUTES = {"/compile": do_compile, "/deploy": do_deploy, "/quit": do_quit, "/end": do_end, "/compile-attack": do_compile_attack,"/deploy-attacker": do_deploy_attacker, "/quit-attacker": do_quit_attacker }
 
 # --- HTTP plumbing ---------------------------------------------------------
 class Handler(BaseHTTPRequestHandler):
