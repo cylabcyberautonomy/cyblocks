@@ -7,3 +7,10 @@ backend/runs/
 __pycache__/
 *.pyc
 __pycache__/
+.env
+
+#not part of the app
+Frontend/my-react-app/
+
+
+backend/Attack/main.py*
