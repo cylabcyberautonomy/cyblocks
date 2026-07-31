@@ -33,7 +33,7 @@ class DataFile(Block):#this is the shared data structure that holds the PTT and 
         #text mode (was added to work on a simple attack that only use one agent so we can not use PTT format)
         self.format = (self.properties.get("format") or "ptt").lower()
         self.transcript = []      # list of {"role": "...", "text": "..."} turns appended in order
-        self.findings = []        # confirmed inormation the agent chose to keep in the transcript 
+        self.findings = []        # confirmed loot kept OUTSIDE the transcript window (survives render_tail)
         self.command = None       # Choice of command is saved here --> the constructed command here for the Executor to pop
         self.done = False         # LLM should setb this to True when it emits DONE so our Condition/Stop can reads it
 
@@ -51,7 +51,7 @@ class DataFile(Block):#this is the shared data structure that holds the PTT and 
         return "\n\n".join(lines)
 
 
-    #when we go back in turns we do not want the llm to recive the whole transcripot so we only retrun the tail so it does not popoulate the terminal 
+# keeps the PROMPT bounded so the LLM doesn't echo the whole log back to us or truncate payloads mid-string as the run gets long
     def render_tail(self, max_turns=12):
         lines = []
         for turn in self.transcript[-max_turns:]:
@@ -157,7 +157,7 @@ class DataFile(Block):#this is the shared data structure that holds the PTT and 
     def control(self, control_queue, edges):
         return None#becuse there is no control passed here to run
 
-#only important findings gets saved here (because our tail render cuts the transcript so for us to not lsoe our fiondings we need to recored them in a sepcific filed)
+#only important findings gets saved here (because our tail render cuts the transcript so for us to not lsoe our findings we need to recored them in a sepcific filed)
 #kept outside the transcript window so these findings surviver 
     def add_finding(self, text):
         t = (text or "").strip()
