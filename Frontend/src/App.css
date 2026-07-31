@@ -99,11 +99,11 @@ padding: 6px;
 display: flex;
 flex-direction: column;
 gap: 4px;
-width: 200px;          /* fixed → every dropdown identical */
+width: 200px;         
 }
 
 .Menu button {
-width: 100%;           /* buttons fill the menu, rows align */
+width: 100%;           
 box-sizing: border-box;
 text-align: left;
 background: none;
