@@ -1,12 +1,10 @@
 from pathlib import Path
 from typing import Any
-
 import common
 
 SERVICE_DATA_PATH = Path(__file__).with_name("services.json")
 
 LIBRARY: list[dict[str, Any]] = []
-
 
 def load_library(path: Path = SERVICE_DATA_PATH) -> None:
     global LIBRARY
