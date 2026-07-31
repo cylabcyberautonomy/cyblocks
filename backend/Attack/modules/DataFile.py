@@ -3,6 +3,7 @@
 from modules.block import Block
 
 
+
 class TaskNode:
     def __init__(self, id, title, status="todo", result=None, is_goal=False):
         self.id = id              # address for blcoks to find teh task node and update it  
@@ -29,6 +30,45 @@ class DataFile(Block):#this is the shared data structure that holds the PTT and 
         super().__init__(id, name, properties)
         self.root = TaskNode("0", "attack root")#our root that holds the entire tree structure 
         self._auto = 0 # auto-incrementing id for tasks
+        #text mode (was added to work on a simple attack that only use one agent so we can not use PTT format)
+        self.format = (self.properties.get("format") or "ptt").lower()
+        self.transcript = []      # list of {"role": "...", "text": "..."} turns appended in order
+        self.findings = []        # confirmed inormation the agent chose to keep in the transcript 
+        self.command = None       # Choice of command is saved here --> the constructed command here for the Executor to pop
+        self.done = False         # LLM should setb this to True when it emits DONE so our Condition/Stop can reads it
+
+    #text mode helpers 
+
+    #recored each turn with a role (writer)
+    def append(self, role, text):
+        self.transcript.append({"role": role, "text": (text or "").strip()})
+
+    #flatten the transcript so the llm can read it (reader)
+    def render_transcript(self):
+        lines = []
+        for turn in self.transcript:
+            lines.append(f"[{turn['role']}]\n{turn['text']}")
+        return "\n\n".join(lines)
+
+
+    #when we go back in turns we do not want the llm to recive the whole transcripot so we only retrun the tail so it does not popoulate the terminal 
+    def render_tail(self, max_turns=12):
+        lines = []
+        for turn in self.transcript[-max_turns:]:
+            lines.append(f"[{turn['role']}]\n{turn['text']}")
+        return "\n\n".join(lines)
+
+    #this helper function handels the hand off between the choice and executor 
+    #
+    def set_command(self, command):
+        # Choice send the validated command here
+        self.command = command
+    #Executor pops teh command  via take_command()
+    def take_command(self):
+        # Executor reads and clears (so thesre is no repeated command run)
+        cmd, self.command = self.command, None
+        return cmd
+
 
 # we need to be able to find a node by id because the LLM will return a node id and we need to find that node in the PTT to update its status or result
     def find(self, node_id, node=None):#depth-first search for a node by id, starting at the root
@@ -51,6 +91,16 @@ class DataFile(Block):#this is the shared data structure that holds the PTT and 
         if task_id is None:
             self._auto += 1
             task_id = f"auto-{self._auto}"
+        #repeat id updates the existing task instead of adding a twin(cleaner)
+        else:
+            existing = self.find(task_id)          
+            if existing is not None:
+            # already exists so update title/goal instead of adding a twin
+                if title:
+                    existing.title = title
+                if is_goal:
+                    existing.is_goal = True
+                return task_id
         node = TaskNode(task_id, title, is_goal=is_goal)#objective of the  atatck ?
         parent.children.append(node)
         return task_id
@@ -96,11 +146,25 @@ class DataFile(Block):#this is the shared data structure that holds the PTT and 
             if n.is_goal and n.status == "done":
                 return True
         return False
-
+#chceking which mode we are in to know which format to render 
     def render(self):
+        if self.format == "text":
+            return self.render_transcript()
         return self.root.render()
-        
+       
     def run(self, data_stack):
         return None
     def control(self, control_queue, edges):
-        return None#becuse there is no control passed here 
+        return None#becuse there is no control passed here to run
+
+#only important findings gets saved here (because our tail render cuts the transcript so for us to not lsoe our fiondings we need to recored them in a sepcific filed)
+#kept outside the transcript window so these findings surviver 
+    def add_finding(self, text):
+        t = (text or "").strip()
+        if t and t not in self.findings:   
+            self.findings.append(t)
+#render important findings back to user 
+    def render_findings(self):
+        if not self.findings:
+            return "(no findings recorded)"
+        return "\n".join(f"- {f}" for f in self.findings)
