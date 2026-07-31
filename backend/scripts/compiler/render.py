@@ -77,7 +77,7 @@ def render_host_docker(image: str, payloads_for_host: Payloads, routed: bool = F
     #           write that instead of the marker.
     for f in payloads_for_host["files"]:
         parent = posixpath.dirname(f["path"]) or "/"
-        body = f.get("sensitivity") or f["name"]
+        body = f.get("contents") or f.get("sensitivity") or f["name"]#so our file can always fall back to abody if one was not set up 
         dockerfile += f"RUN mkdir -p {parent} && echo '{body}' > {f['path']}\n"
 
     # Step 5: done -- one string, already newline-terminated per line.
