@@ -1,4 +1,4 @@
-# modules/block.py — the shape every block must have.
+#modules/block.py — the shape every block must have.
 #the base class 
 from runtime import *
 class Block:
@@ -22,4 +22,30 @@ class Block:
                 "type": type(self).__name__, "props": self.properties}
 
     def __repr__(self):#so we dont just print the memory address of the stack
-        return f"{type(self).__name__}({self.id!r}, {self.name!r}, {self.properties!r})"    
+        return f"{type(self).__name__}({self.id!r}, {self.name!r}, {self.properties!r})"  
+          
+#the contract between "what the agent decided" and "where control goes next"
+#gets called by agents (LLM/Human )in text mode after they parse the reply
+#it sets self._label, which the block's control() then routes on
+    def dispatch_choice(self, data_stack, tool, args):
+        # Shared by LLM and Human in text mode where we takes the chosen tool+args, runs it through the
+        # attached Choice (self.choice, wired by the mapper), and send teh command or error 
+        df = data_stack.peek()
+
+        if (tool or "").strip().lower() == "done":#check our transcript and if done was flagged 
+            self._label = "done"                      # 
+            df.append("note", f"{type(self).__name__} signalled DONE")
+            return
+
+        choice = getattr(self, "choice", None)
+        if choice is None:
+            df.append("note", "no Choice block attached to this agent")
+            self._label = "next"
+            return
+
+        result = choice.select(tool, args)            
+        if result.get("ok"):
+            df.set_command(result["command"])         # Executor will pop and run it
+        else:
+            df.append("note", f"rejected: {result.get('error')}")  # visible next turn, no command shipped
+        self._label = "next"                          # defualt control edge 
