@@ -24,6 +24,10 @@ def name_to_block_init(id, name, properties=None):
             return Condition(id, name, properties)
         case "Parameter":
             return Parameter(id, name, properties)
+        case "Action":   
+            return Action(id, name, properties)
+        case "Executor": 
+            return Executor(id, name, properties)
         case _:           raise ValueError(f"Unknown block type: {name!r}")
 
 
@@ -60,15 +64,17 @@ def run_mapper(attcker_file : str, pyimport_file : str, toolimport_file : str, J
         file.write(f"from modules import *\n")
         file.write(f"from runtime import *\n")
         file.write(f"edges = {repr(edges)}\n")
+        file.write(f"data_edges = {repr(JSON['data_connections'])}\n")
         file.write(f"blocks = {repr(blocks)}\n")
         file.write(f"control_queue = {repr(control_queue)}\n")
         file.write(f"data_stack = {repr(data_stack)}\n")
         file.write(f"def main():\n")
-        file.write(f"   run(blocks, control_queue, data_stack, edges)\n")
+        file.write(f"   run(blocks, control_queue, data_stack, edges, data_edges)\n")        
         file.write(f"if __name__ == '__main__':\n")
         file.write(f"   main()\n")
 
 
+#these two need to be actully inmplmented in the future 
     with open(pyimport_file, "w") as file:
         file.write(f"empty\n")
 
