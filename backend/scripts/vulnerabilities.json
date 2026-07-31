@@ -12,8 +12,9 @@
         " || (yum install -y wget) \\",
         " || true",
         "RUN mkdir -p /usr/local/tomcat/webapps \\",
-        " && wget -q -O /usr/local/tomcat/webapps/struts2-showcase.war https://repo1.maven.org/maven2/org/apache/struts/struts2-showcase/2.3.30/struts2-showcase-2.3.30.war",
-        "EXPOSE 8080"
+        " && wget -q -O /usr/local/tomcat/webapps/ROOT.war https://repo1.maven.org/maven2/org/apache/struts/struts2-showcase/2.3.30/struts2-showcase-2.3.30.war", 
+        "EXPOSE 8080",
+        "RUN echo 'flag{struts2-rce-owned}' > /root/struts_secret.txt && chmod 600 /root/struts_secret.txt"
       ],
       "start": [
         "(catalina.sh start || /usr/local/tomcat/bin/catalina.sh start) >/dev/null 2>&1 || true"
@@ -40,6 +41,47 @@
         "ssh-keygen -A >/dev/null 2>&1 || true",
         "mkdir -p /run/sshd >/dev/null 2>&1 || true",
         "(/usr/sbin/sshd 2>/dev/null || service ssh start >/dev/null 2>&1) || true"
+      ]
+    },
+    {
+      "name": "shellshock-cve-2014-6271",
+      "cve": "CVE-2014-6271",
+      "severity": "critical",
+      "description": "Bash Shellshock via Apache mod_cgi. REALIZED BY THE HOST IMAGE -- set the host's image to vulnerables/cve-2014-6271 (vulnerable CGI at /cgi-bin/vulnerable on :80). These lines add nothing; leaving the host on ubuntu means patched bash and no vuln.",
+      "lines": [
+        "# CVE-2014-6271 -- realized by base image vulnerables/cve-2014-6271; CGI at /cgi-bin/vulnerable."
+      ],
+      "start": []
+    },
+    {
+      "name": "anonymous-ftp-access",
+      "cve": "",
+      "severity": "medium",
+      "description": "vsftpd with anonymous login enabled -- unauthenticated file read over FTP. Real package on ubuntu, builds cleanly. Exploit with curl ftp://host/secret.txt. Secret served from /srv/ftp.",
+      "lines": [
+        "# Anonymous FTP -- vsftpd with anon access enabled.",
+        "RUN (apt-get update && apt-get install -y vsftpd) || (apk add --no-cache vsftpd) || true",
+        "RUN printf 'listen=YES\\nanonymous_enable=YES\\nanon_root=/srv/ftp\\nno_anon_password=YES\\n' > /etc/vsftpd.conf || true",
+        "RUN mkdir -p /srv/ftp && chmod 755 /srv/ftp || true",
+        "EXPOSE 21"
+      ],
+      "start": ["mkdir -p /var/run/vsftpd/empty || true", "(vsftpd /etc/vsftpd.conf &) >/dev/null 2>&1 || true"]
+    },
+    {
+      "name": "mysql-no-root-password",
+      "cve": "",
+      "severity": "high",
+      "description": "MySQL/MariaDB with a blank root password, bound to all interfaces -- unauthenticated DB access. Real package on ubuntu. Exploit with mysql client: read the secret from a table.",
+      "lines": [
+        "# MySQL/MariaDB root with no password, listening on all interfaces.",
+        "RUN (DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y mariadb-server) || true",
+        "RUN sed -i 's/^bind-address.*/bind-address = 0.0.0.0/' /etc/mysql/mariadb.conf.d/50-server.cnf || true",
+        "EXPOSE 3306"
+      ],
+      "start": [
+        "(mysqld_safe &) >/dev/null 2>&1 || service mariadb start || true",
+        "for i in 1 2 3 4 5 6 7 8 9 10; do mysqladmin ping >/dev/null 2>&1 && break; sleep 2; done",
+        "mysql -u root -e \"CREATE DATABASE IF NOT EXISTS loot; CREATE TABLE IF NOT EXISTS loot.secret (data TEXT); INSERT INTO loot.secret VALUES ('flag{mysql}'); CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED BY ''; GRANT ALL PRIVILEGES ON *.* TO 'root'@'%'; FLUSH PRIVILEGES;\" 2>/dev/null || true"
       ]
     }
   ]
