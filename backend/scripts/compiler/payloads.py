@@ -11,6 +11,14 @@ def bind_payloads(env: Env) -> dict[str, dict[str, Any]]:
     # Step A: lookup tables for the direct host binds (users/files milestone).
     users_by_name = {u["name"]: u for u in env["users"]}
     files_by_name = {f["name"]: f for f in env["files"]}
+#gurad against empty and duplicate names 
+    for kind in ("services", "vulnerabilities", "files", "users", "misconfigurations"):
+        names = [x.get("name", "") for x in env.get(kind, [])]
+        if "" in names:
+            raise ValueError(f"{kind}: a block has an empty name -- every block needs a unique name to bind.")
+        dupes = {n for n in names if names.count(n) > 1}
+        if dupes:
+            raise ValueError(f"{kind}: duplicate names {sorted(dupes)} -- names must be unique to bind.")
 
     payloads: dict[str, dict[str, Any]] = defaultdict(
         # Step B: users/files get their own buckets, alongside services/vulns/misconfigs.
