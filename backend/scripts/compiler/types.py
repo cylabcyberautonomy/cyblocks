@@ -36,6 +36,7 @@ class Service(TypedDict, total=False):
     password: str         # type == "user"
     path: str             # type == "file"
     sensitivity: str      # type == "file"
+    contents: str         # type == "file"
 
 class Vulnerability(TypedDict):
     name: str

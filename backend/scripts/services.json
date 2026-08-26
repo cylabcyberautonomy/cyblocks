@@ -1,0 +1,9 @@
+{
+  "services": [
+    { "name": "struts2", "protocol": "http", "port": "8080", "version": "Apache Struts 2.3.30", "description": "Struts2 showcase on Tomcat (image-realized). Pair with apache-struts-cve-2017-5638 on tomcat:8-jre8." },
+    { "name": "ftp", "protocol": "ftp", "port": "21", "version": "vsftpd (anon)", "description": "FTP with anonymous access enabled (real vsftpd package, builds). Pair with anonymous-ftp-access. Exploit with curl ftp://." },
+    { "name": "http", "protocol": "http", "port": "80", "version": "Apache mod_cgi", "description": "Apache CGI (image-realized). Pair with shellshock-cve-2014-6271 on vulnerables/cve-2014-6271." },
+    { "name": "openssh-server", "protocol": "ssh", "port": "22", "version": "OpenSSH", "description": "SSH (real package on ubuntu). Pair with weak-ssh-credentials." },
+    { "name": "mysql", "protocol": "tcp", "port": "3306", "version": "MariaDB", "description": "Pair with mysql-no-root-password. Exploit with mysql client." }
+  ]
+}
