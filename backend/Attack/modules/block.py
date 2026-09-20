@@ -27,13 +27,14 @@ class Block:
 #the contract between "what the agent decided" and "where control goes next"
 #gets called by agents (LLM/Human )in text mode after they parse the reply
 #it sets self._label, which the block's control() then routes on
-    def dispatch_choice(self, data_stack, tool, args):
-        # Shared by LLM and Human in text mode where we takes the chosen tool+args, runs it through the
-        # attached Choice (self.choice, wired by the mapper), and send teh command or error 
+    def dispatch_choice(self, data_stack, tool, args, task_id=None):
+        # Shared by LLM and Human where we take the chosen tool+args, run it through the
+        # attached Choice (self.choice, wired by the mapper), and send the command or error.
+        # task_id is ptt-mode only (which PTT leaf this command is for) -- text mode leaves it None.
         df = data_stack.peek()
 
-        if (tool or "").strip().lower() == "done":#check our transcript and if done was flagged 
-            self._label = "done"                      # 
+        if (tool or "").strip().lower() == "done":#check our transcript and if done was flagged
+            self._label = "done"                      #
             df.append("note", f"{type(self).__name__} signalled DONE")
             return
 
@@ -43,9 +44,9 @@ class Block:
             self._label = "next"
             return
 
-        result = choice.select(tool, args)            
+        result = choice.select(tool, args)
         if result.get("ok"):
-            df.set_command(result["command"])         # Executor will pop and run it
+            df.set_command(result["command"], task_id=task_id)   # Executor will pop and run it
         else:
             df.append("note", f"rejected: {result.get('error')}")  # visible next turn, no command shipped
-        self._label = "next"                          # defualt control edge 
+        self._label = "next"                          # defualt control edge

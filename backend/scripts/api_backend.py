@@ -66,18 +66,22 @@ HOST, PORT = "127.0.0.1", 8000
 
 
 def _stream_attack(job_id: str) -> None:
-    env = dict(os.environ, PYTHONUNBUFFERED="1")#rather than printing the output we copy the env and give it to the child process 
-    #we execute main.py here 
+    env = dict(os.environ, PYTHONUNBUFFERED="1")#rather than printing the output we copy the env and give it to the child process
+    #we execute main.py here
     #we run the compiled main.py exactly like `python3 main.py` from Attack/ but
     #[RUN]/[FOUND] lines arrive live instead of all at the end(arroives at our window)
+    # stdin is piped so /attack-input can answer a Human(Reviewer) block's AWAITING INPUT prompt --
+    # it has a timeout on its side, so an unanswered prompt still won't hang the run.
     proc = subprocess.Popen(
         [sys.executable, "-u", "main.py"],
         cwd=_ATTACK_DIR,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,  
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, bufsize=1, env=env,
     )
     with _jobs_lock:
         _jobs[job_id]["pid"] = proc.pid
+        _jobs[job_id]["proc"] = proc
     for line in proc.stdout:                                # blocks per line until EOF
         with _jobs_lock:
             _jobs[job_id]["lines"].append(line.rstrip("\n"))
@@ -134,9 +138,29 @@ def do_run_attack(payload: dict) -> dict:
         raise FileNotFoundError("no compiled main.py -- run compile-attack first")
     job_id = uuid.uuid4().hex
     with _jobs_lock:
-        _jobs[job_id] = {"lines": [], "done": False, "returncode": None, "pid": None}
+        _jobs[job_id] = {"lines": [], "done": False, "returncode": None, "pid": None, "proc": None}
     threading.Thread(target=_stream_attack, args=(job_id,), daemon=True).start()
     return {"job_id": job_id}
+
+def do_attack_input(payload: dict) -> dict:
+    # answers a Human(Reviewer) block's AWAITING INPUT prompt -- the frontend renders this as
+    # continue/override/suggest buttons (override/suggest also carry free text from a text box)
+    # and posts the clicked value here, which we write straight into the running attack's stdin
+    # pipe as one JSON line so free text with spaces/punctuation survives intact. If nothing is
+    # ever posted, Human._review's own timeout defaults to "continue" so the attack keeps going.
+    job_id = payload["job_id"]
+    value = str(payload.get("value", "")).strip()
+    text = str(payload.get("text", "")).strip()
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            raise KeyError(f"unknown job {job_id}")
+        proc = job.get("proc")
+    if proc is None or proc.stdin is None or proc.poll() is not None:
+        raise RuntimeError("attack process is not accepting input (already finished?)")
+    proc.stdin.write(json.dumps({"decision": value, "text": text}) + "\n")
+    proc.stdin.flush()
+    return {"ok": True}
 
 def do_attack_status(payload: dict) -> dict:
     #give back the only the lines past the cursor plus the new cursor 
@@ -168,7 +192,7 @@ def do_end(payload: dict) -> dict:
     return result
 
 
-POST_ROUTES = {"/compile": do_compile, "/deploy": do_deploy, "/quit": do_quit, "/end": do_end, "/compile-attack": do_compile_attack,"/deploy-attacker": do_deploy_attacker, "/quit-attacker": do_quit_attacker, "/run-attack": do_run_attack, "/attack-status": do_attack_status }
+POST_ROUTES = {"/compile": do_compile, "/deploy": do_deploy, "/quit": do_quit, "/end": do_end, "/compile-attack": do_compile_attack,"/deploy-attacker": do_deploy_attacker, "/quit-attacker": do_quit_attacker, "/run-attack": do_run_attack, "/attack-status": do_attack_status, "/attack-input": do_attack_input }
 
 # --- HTTP plumbing ---------------------------------------------------------
 class Handler(BaseHTTPRequestHandler):
