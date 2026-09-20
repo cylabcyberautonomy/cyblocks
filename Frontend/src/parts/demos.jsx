@@ -247,8 +247,9 @@ export const demoOodaAttack = ({ attackerBlockStyles, attackerBlockProperties, A
   };
 
   const choice = mkNode(ID.choice, "Choice", { x: 480, y: 360 });
-  // Stamp the cradle size so the Choice draws its arms and wraps the seated LLM immediately.
-  // These are approximate; they re-measure the moment you drag the LLM.
+  // Approximate initial cradle size so the Choice draws its arms around the seated LLM without
+  // a flash of the wrong size -- App.jsx's snapCradlesToMeasured then corrects this to the LLM's
+  // exact rendered size the moment React Flow measures it, no drag needed.
   choice.data.cradleW = 200;
   choice.data.cradleH = 60;
 
@@ -304,6 +305,131 @@ export const demoOodaAttack = ({ attackerBlockStyles, attackerBlockProperties, A
     data("d-exec-df", ID.executor, ID.datafile),
     // NOTE: no Choice -> LLM edge. The cradle (LLM.parentId === Choice) supplies that
     // data_connection via buildAttack's parent/child pass.
+  ];
+
+  return { nodes: demoNodes, edges: demoEdges };
+};
+
+// PentestGPT-style demo: Parsing -> Reasoning -> {done: Stop, next: human Reviewer
+// (continue/suggest/override)} -> Generation -> Executor -> loop back to Parsing. Full ptt-mode
+// multi-agent flow with a human goal-setting step at the start and a human review checkpoint
+// mid-loop, matching the real PentestGPT architecture (as opposed to demoOodaAttack's single-agent
+// text-mode ReasonAct loop). The Reasoning agent decides goal_reached itself (from the "STATUS g1 |
+// done" it already emits) and hands control straight to Stop via the same done/next cf-out labels
+// LLM blocks already use elsewhere -- there is no separate Condition block.
+export const demoPentestGptAttack = ({ attackerBlockStyles, attackerBlockProperties, AGENT_CF, toggleCfOut }) => {
+  const mkNode = (id, name, position, props = {}, opts = {}) => {
+    const aStyle = attackerBlockStyles[name];
+    const node = {
+      id, type: name, position,
+      data: {
+        id, label: name, blockType: name,
+        accentColor: aStyle?.accentColor, textColor: aStyle?.textColor,
+        icon: aStyle?.icon, category: aStyle?.category,
+        properties: { ...attackerBlockProperties[name], ...props },
+        ...(AGENT_CF.includes(name) && {
+          enabledCfOut: opts.cfOut ?? ["next"],
+          onToggleCfOut: toggleCfOut,
+        }),
+      },
+    };
+    if (opts.parentId) { node.parentId = opts.parentId; node.data.parentId = opts.parentId; }
+    return node;
+  };
+
+  const ID = {
+    start: "pgpt-start", editor: "pgpt-editor", datafile: "pgpt-datafile",
+    paramParsing: "pgpt-param-parsing", llmParsing: "pgpt-llm-parsing",
+    paramReasoning: "pgpt-param-reasoning", llmReasoning: "pgpt-llm-reasoning",
+    choiceReview: "pgpt-choice-review", reviewer: "pgpt-reviewer",
+    paramGeneration: "pgpt-param-generation",
+    choiceActions: "pgpt-choice-actions", llmGeneration: "pgpt-llm-generation",
+    actionNmap: "pgpt-action-nmap", actionCurl: "pgpt-action-curl", actionHydra: "pgpt-action-hydra",
+    executor: "pgpt-executor", stop: "pgpt-stop",
+  };
+
+  const choiceReview = mkNode(ID.choiceReview, "Choice", { x: 860, y: 300 });
+  choiceReview.data.cradleW = 160; choiceReview.data.cradleH = 70;
+  const choiceActions = mkNode(ID.choiceActions, "Choice", { x: 1300, y: 300 });
+  choiceActions.data.cradleW = 200; choiceActions.data.cradleH = 60;
+
+  const demoNodes = [
+    mkNode(ID.start, "Start", { x: 40, y: 320 }),
+    mkNode(ID.editor, "Human", { x: 220, y: 320 }, { mode: "Editor", goal: "find the secret file" },
+      { cfOut: ["next"] }),
+    mkNode(ID.datafile, "DataFile", { x: 900, y: 560 }, { format: "ptt" }),
+
+    mkNode(ID.paramParsing, "Parameter", { x: 420, y: 140 }, { role: "Parsing" }),
+    mkNode(ID.llmParsing, "LLM", { x: 420, y: 320 },
+      { model: "claude-opus-4-8", apiKey: "ANTHROPIC_API_KEY" }, { cfOut: ["next"] }),
+
+    mkNode(ID.paramReasoning, "Parameter", { x: 640, y: 140 }, { role: "Reasoning" }),
+    mkNode(ID.llmReasoning, "LLM", { x: 640, y: 320 },
+      { model: "claude-opus-4-8", apiKey: "ANTHROPIC_API_KEY" }, { cfOut: ["next", "done"] }),
+
+    choiceReview,                                               // parent must precede its child
+    mkNode(ID.reviewer, "Human", { x: 92, y: 16 },              // relative to choiceReview
+      { mode: "Reviewer", timeout: "30" },
+      { parentId: ID.choiceReview, cfOut: ["next", "suggest", "override"] }),
+
+    mkNode(ID.paramGeneration, "Parameter", { x: 1300, y: 140 }, { role: "Generation" }),
+    choiceActions,                                               // parent must precede its child
+    mkNode(ID.llmGeneration, "LLM", { x: 92, y: 16 },           // relative to choiceActions
+      { model: "claude-opus-4-8", apiKey: "ANTHROPIC_API_KEY" },
+      { parentId: ID.choiceActions, cfOut: ["next"] }),
+    mkNode(ID.actionNmap, "Action", { x: 1180, y: 640 }, { tool: "nmap" }),
+    mkNode(ID.actionCurl, "Action", { x: 1300, y: 640 }, { tool: "curl" }),
+    mkNode(ID.actionHydra, "Action", { x: 1420, y: 640 }, { tool: "hydra" }),
+
+    mkNode(ID.executor, "Human", { x: 1560, y: 320 }, { mode: "Executor" }, { cfOut: ["next"] }),
+    mkNode(ID.stop, "Stop", { x: 1780, y: 160 }),
+  ];
+
+  // Control edges: cf-out-<label> -> cf-in.
+  const ctrl = (id, from, fromLabel, to) => ({
+    id, source: from, target: to,
+    sourceHandle: `cf-out-${fromLabel}`, targetHandle: "cf-in",
+  });
+  // Data edges: data-out -> data-in (Parameter -> agent uses param-in).
+  const data = (id, from, to, targetHandle = "data-in") => ({
+    id, source: from, target: to,
+    sourceHandle: "data-out", targetHandle,
+  });
+
+  const demoEdges = [
+    // control flow: goal -> parsing -> reasoning -> {done: stop, next: review} -> review ->
+    // {continue: generation, suggest/override: back to reasoning with a human note attached} ->
+    // executor -> loop back to parsing
+    ctrl("c-start-editor", ID.start, "next", ID.editor),
+    ctrl("c-editor-parsing", ID.editor, "next", ID.llmParsing),
+    ctrl("c-parsing-reasoning", ID.llmParsing, "next", ID.llmReasoning),
+    ctrl("c-reasoning-stop", ID.llmReasoning, "done", ID.stop),
+    ctrl("c-reasoning-reviewer", ID.llmReasoning, "next", ID.reviewer),
+    ctrl("c-reviewer-generation", ID.reviewer, "next", ID.llmGeneration),       // continue
+    ctrl("c-reviewer-reasoning-suggest", ID.reviewer, "suggest", ID.llmReasoning),   // suggest: general guidance
+    ctrl("c-reviewer-reasoning-override", ID.reviewer, "override", ID.llmReasoning), // override: a specific thing to fix
+    ctrl("c-generation-executor", ID.llmGeneration, "next", ID.executor),
+    ctrl("c-executor-parsing", ID.executor, "next", ID.llmParsing),
+
+    // data flow: every agent touching the PTT reads/writes the DataFile directly
+    data("d-editor-df", ID.editor, ID.datafile),
+    data("d-df-parsing", ID.datafile, ID.llmParsing),
+    data("d-parsing-df", ID.llmParsing, ID.datafile),
+    data("d-param-parsing", ID.paramParsing, ID.llmParsing, "param-in"),
+    data("d-df-reasoning", ID.datafile, ID.llmReasoning),
+    data("d-reasoning-df", ID.llmReasoning, ID.datafile),
+    data("d-param-reasoning", ID.paramReasoning, ID.llmReasoning, "param-in"),
+    data("d-df-choiceReview", ID.datafile, ID.choiceReview),      // "choice block gets fed the data file"
+    data("d-param-generation", ID.paramGeneration, ID.llmGeneration, "param-in"),
+    data("d-df-generation", ID.datafile, ID.llmGeneration),
+    data("d-generation-df", ID.llmGeneration, ID.datafile),
+    data("d-nmap-choiceActions", ID.actionNmap, ID.choiceActions),
+    data("d-curl-choiceActions", ID.actionCurl, ID.choiceActions),
+    data("d-hydra-choiceActions", ID.actionHydra, ID.choiceActions),
+    data("d-df-executor", ID.datafile, ID.executor),
+    data("d-executor-df", ID.executor, ID.datafile),
+    // NOTE: no explicit Choice -> reviewer / Choice -> generation edges -- the cradle
+    // (parentId === choice id) supplies those data_connections via buildAttack's parent/child pass.
   ];
 
   return { nodes: demoNodes, edges: demoEdges };

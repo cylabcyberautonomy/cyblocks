@@ -7,13 +7,13 @@ import HostNode from './parts/HostNode';
 import AllNodes from './parts/AllNodes';
 import AttackerNode from './parts/AttackerNode'
 import { ENV_STYLES } from './parts/blockTheme';
-import { demoThreeSubnet, demoSingleSubnet, demoSixHost, demoOodaAttack } from './parts/demos';
+import { demoThreeSubnet, demoSingleSubnet, demoSixHost, demoOodaAttack, demoPentestGptAttack } from './parts/demos';
 
 //Buidling a simple UI for the app, with a tapbar, sidebar and main canves
 //This is just a placeholder for now, we will add more functionality later
 function App() {
 const Eblocks = ["Host", "Router", "Service", "Vulnerability", "Misconfiguration", "Subnet", "User", "File"];
-const Ablocks = ["Human", "LLM", "Algorithm", "Start", "Stop", "Choice", "DataFile", "Library", "Module", "Parameter", "Condition", "Action", "Executor" ];
+const Ablocks = ["Human", "LLM", "Start", "Stop", "Choice", "DataFile", "Parameter", "Action", "Executor" ];
 //Adding properties for for each block 
 const blockProperties = {
   Host: { name: "", image: "", RAM: "", disk: "" },//deleted IP becuse its dervied at compilation 
@@ -28,15 +28,11 @@ const blockProperties = {
 const attackerBlockProperties = {
   Start:     { },
   Stop:      { debug: false },
-  Condition: { name: "", check: "" },
   Choice:    { name: "", useLlmSuggestion: false },
-  Human:     { name: "", mode: "", prompt: "" },
-  LLM:       { name: "", model: "", apiKey: "" },
+  Human:     { name: "", mode: "", goal: "" },
+  LLM:       { name: "", provider: "", model: "", apiKey: "" },
   DataFile:  { name: "", format: "" },
   Parameter: { role: "", instruction: "" },
-  Algorithm: { name: "", description: "" },
-  Library:   { name: "", query: "" },
-  Module:    { name: "", description: "" },
   Action:    { tool: "" },
   Executor:  { container: "" },
 };
@@ -46,11 +42,7 @@ const attackerBlockStyles = {
   Choice:   { accentColor: "#1e2a3a", textColor: "#7eb8ff", icon: "⋄",  category: "control" },
   Human:    { accentColor: "#3d2b00", textColor: "#ffc94d", icon: "👤", category: "agent"   },
   LLM:      { accentColor: "#2a1a4a", textColor: "#c084fc", icon: "🧠", category: "agent"   },
-  Algorithm:{ accentColor: "#0d2e2e", textColor: "#34d1c5", icon: "⚙️", category: "agent"   },
   DataFile: { accentColor: "#1a1f3a", textColor: "#a5b4fc", icon: "📄", category: "data"    },
-  Library:  { accentColor: "#0f1f35", textColor: "#60a5fa", icon: "🗂", category: "data"    },
-  Module:   { accentColor: "#111611", textColor: "#a3e635", icon: "📦", category: "module"  },
-  Condition: { accentColor: "#3a3320", textColor: "#ffe066", icon: "◇",  category: "control" },
   Parameter:{ accentColor: "#0f1f35", textColor: "#60a5fa", icon: "⚙",  category: "data"    },
   Action:   { accentColor: "#101a10", textColor: "#a3e635", icon: "🔧", category: "action"    },
   Executor: { accentColor: "#1e2a3a", textColor: "#7eb8ff", icon: "▶",  category: "control" },
@@ -114,6 +106,9 @@ const [expEnvId, setExpEnvId] = useState("");
 const [expAtkId, setExpAtkId] = useState("");
 const [expStage, setExpStage] = useState("");//to know which stage we are on (deploy --> compile --> run)
 const [expLines, setExpLines] = useState([]);
+const [expJobId, setExpJobId] = useState(null);        // current running attack's job id, so review buttons know where to post
+const [awaitingInput, setAwaitingInput] = useState(false); // true when a Human(Reviewer) block is waiting on continue/override/suggest
+const [reviewNote, setReviewNote] = useState("");           // free text typed for an override/suggest decision
 
 //filling in our service and vulnaribilities catalog from our backend on the first laod 
 useEffect(() => {
@@ -205,7 +200,27 @@ const dimsOf = (n) => ({
 });
 
 
-//we need this helper function to determind if an agent blcok was dropped into a choice block 
+//React Flow reports each node's real rendered size once via a "dimensions" change, the first
+//time it paints. If that node is seated in a Choice (parentId points at one), snap the Choice's
+//cradle to that exact size right away -- so a seated agent (from a demo, or freshly loaded)
+//looks attached immediately instead of needing a manual drag to trigger the re-measure.
+const snapCradlesToMeasured = (changes, nds) => {
+  let next = nds;
+  for (const ch of changes) {
+    if (ch.type !== "dimensions" || !ch.dimensions) continue;
+    const node = next.find((n) => n.id === ch.id);
+    if (!node?.parentId) continue;
+    const parent = next.find((n) => n.id === node.parentId);
+    if (parent?.data.blockType !== "Choice") continue;
+    if (parent.data.cradleW === ch.dimensions.width && parent.data.cradleH === ch.dimensions.height) continue;
+    next = next.map((n) => n.id === parent.id
+      ? { ...n, data: { ...n.data, cradleW: ch.dimensions.width, cradleH: ch.dimensions.height } }
+      : n);
+  }
+  return next;
+};
+
+//we need this helper function to determind if an agent blcok was dropped into a choice block
 const onNodeDragStop = (_e, node) => {
   const oldParentId = node.parentId;///was the agent alredy setting already into choice block
   if (!isAttackerFile || !AGENTS.includes(node.data.blockType)) return;//if we are not in an attacker mood we do not want to use this fucntion so return 
@@ -367,7 +382,7 @@ const buildAttackFrom = (file) => {
   const blocks_on_canvas = fnodes.map((node) => ({
     id: node.id, name: node.data.blockType, properties: { ...(node.data.properties || {}) } }));
   const control_connections = [], data_connections = [];
-  const branchTypes = ["Choice", "Condition"];
+  const branchTypes = ["Choice"];
   for (const edge of fedges) {
     const sh = edge.sourceHandle || "";
     const source = findN(edge.source), target = findN(edge.target);
@@ -378,7 +393,7 @@ const buildAttackFrom = (file) => {
       if (branchTypes.includes(source.data.blockType)) conn.backend_decides = true;
       control_connections.push(conn);
     } else {
-      const dataBlocks = ["DataFile", "Parameter", "Library"];
+      const dataBlocks = ["DataFile", "Parameter"];
       data_connections.push({ from: edge.source, to: edge.target,
         access: dataBlocks.includes(source.data.blockType) ? "read" : "write" });
     }
@@ -575,6 +590,8 @@ const runExperiment = async () => {
   const envFile = files.find((f) => f.id === expEnvId);
   const atkFile = files.find((f) => f.id === expAtkId);
   setExpLines([]);
+  setAwaitingInput(false);
+  setExpJobId(null);
   try {
     setExpStage("Deploying environment…");
     await post("/deploy", buildDockerDsl(buildEnvFrom(envFile)));   // nested DSL, like runEnvironment
@@ -584,16 +601,42 @@ const runExperiment = async () => {
     await post("/compile-attack", buildAttackFrom(atkFile));        // rebakes prompts from canvas -> fresh main.py
     setExpStage("Running attack…");
     const { job_id } = await post("/run-attack", {});
+    setExpJobId(job_id);
     let cursor = 0, done = false;
     while (!done) {
       const s = await post("/attack-status", { job_id, cursor });
-      if (s.lines.length) setExpLines((prev) => [...prev, ...s.lines]);
+      if (s.lines.length) {
+        setExpLines((prev) => [...prev, ...s.lines]);
+        // Human(Reviewer) prints this marker right before it starts waiting on a decision --
+        // show it as buttons instead of asking anyone to type into a log window.
+        const last = s.lines[s.lines.length - 1];
+        setAwaitingInput(last.startsWith("[human:reviewer] AWAITING INPUT"));
+      }
       cursor = s.cursor; done = s.done;
       if (!done) await new Promise((r) => setTimeout(r, 1500));
     }
     setExpStage("Finished");
+    setAwaitingInput(false);
   } catch (e) {
     setExpStage("Error: " + e.message);
+    setAwaitingInput(false);
+  }
+};
+
+// Continue / Override / Suggest button clicks -- posts straight into the running attack's stdin
+// pipe. Override/suggest carry whatever's typed in the review note box: override should point at
+// a specific thing that needs fixing (the model figures out the fix), suggest is more general
+// strategic guidance for the model to weigh. If nobody clicks in time, Human._review's own
+// timeout defaults to "continue" on its own, so this is purely an optional accelerant.
+const answerReview = async (value) => {
+  if (!expJobId) return;
+  setAwaitingInput(false);           // hide the buttons immediately, don't wait for the next poll
+  const text = reviewNote;
+  setReviewNote("");
+  try {
+    await post("/attack-input", { job_id: expJobId, value, text });
+  } catch (e) {
+    setExpLines((prev) => [...prev, `[frontend] failed to send "${value}": ${e.message}`]);
   }
 };
 
@@ -638,7 +681,7 @@ async function runAttacker() {
 }
 
 //since all of our agents can have multiable control handels we addeda menue to chooce their control edges we wnat to use 
-const AGENT_CF = ["LLM", "Human", "Algorithm"]; 
+const AGENT_CF = ["LLM", "Human"];
 const toggleCfOut = (nodeId, handle) => {
   if (handle === "next") return;   // locked in all simple systems you jsut want to continue 
   setActiveNodes((nds) => nds.map((n) => {
@@ -664,6 +707,7 @@ const loadDemoEnvironment  = () => applyDemo(demoThreeSubnet({ makeLabel }));
 const loadDemoSingleSubnet = () => applyDemo(demoSingleSubnet({ makeLabel }));
 const loadDemoSixHost      = () => applyDemo(demoSixHost({ makeLabel }));
 const loadDemoAttack       = () => applyDemo(demoOodaAttack({ attackerBlockStyles, attackerBlockProperties, AGENT_CF, toggleCfOut }));
+const loadDemoPentestGpt   = () => applyDemo(demoPentestGptAttack({ attackerBlockStyles, attackerBlockProperties, AGENT_CF, toggleCfOut }));
 
 
 //The start of the app 
@@ -703,15 +747,19 @@ return (
     mode: ["Editor", "Reviewer", "Executor"],
     tool: ["nmap", "curl", "nc", "hydra", "ssh", "sshpass", "mysql"],
     format: ["ptt", "text"],
-    model: [
-    "claude-opus-4-5",
-    "claude-opus-4-8",
-    "claude-sonnet-5",
-    "claude-haiku-4-5",
-    "claude-fable-5",
-    ],
-    apiKey: ["ANTHROPIC_API_KEY"],
-
+    provider: ["anthropic", "openai", "google"],
+  };
+  // model/apiKey are free text (any key you've put in your .env, any model that provider
+  // serves) -- these are just suggestions to fill the field faster, picked by provider.
+  const modelSuggestions = {
+    anthropic: ["claude-opus-4-5", "claude-sonnet-5", "claude-haiku-4-5", "claude-fable-5"],
+    openai:    ["gpt-5", "gpt-5-mini", "gpt-4o"],
+    google:    ["gemini-2.5-pro", "gemini-2.5-flash"],
+  };
+  const apiKeySuggestions = {
+    anthropic: ["ANTHROPIC_API_KEY"],
+    openai:    ["OPENAI_API_KEY"],
+    google:    ["GOOGLE_API_KEY"],
   };
   return (
     <div key={key}>
@@ -743,6 +791,24 @@ return (
                     {c?.cve ? `${c.name} (${c.cve})` : (c?.name ?? "")}
                   </option>
                 ))}
+              </datalist>
+            </>
+          );
+        }
+        // model/apiKey: free text with suggestions from whichever provider is picked (or
+        // every provider's suggestions if none is picked yet) -- never locks you to a list.
+        const suggestFor = (bt === "LLM" && (key === "model" || key === "apiKey"))
+          ? (key === "model" ? modelSuggestions : apiKeySuggestions) : null;
+        if (suggestFor) {
+          const provider = selectedNode.data.properties.provider;
+          const opts = suggestFor[provider] ?? Object.values(suggestFor).flat();
+          const listId = `sugg-${key}-${selectedNode.id}`;
+          return (
+            <>
+              <input list={listId} value={selectedNode.data.properties[key] ?? ""}
+                onChange={(e) => updateNodeProperty(selectedNode.id, key, e.target.value)} />
+              <datalist id={listId}>
+                {opts.map((o) => <option key={o} value={o} />)}
               </datalist>
             </>
           );
@@ -832,6 +898,22 @@ return (
       <button disabled={!expEnvId || !expAtkId} onClick={runExperiment}>Run</button>
     </div>
     {expStage && <div>Status: {expStage}</div>}
+    {awaitingInput && (
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "8px 0" }}>
+        <span style={{ opacity: 0.8 }}>Reviewer needs a decision:</span>
+        <input
+          value={reviewNote}
+          onChange={(e) => setReviewNote(e.target.value)}
+          placeholder="For Override: what's wrong (the model figures out the fix). For Suggest: general guidance."
+          style={{ width: "100%" }}
+        />
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => answerReview("continue")}>Continue</button>
+          <button onClick={() => answerReview("override")}>Override</button>
+          <button onClick={() => answerReview("suggest")}>Suggest</button>
+        </div>
+      </div>
+    )}
     <pre
       style={{
         flex: 1,                 
@@ -915,6 +997,7 @@ return (
             <button onClick={() => { loadDemoSingleSubnet(); setOpenMenu(null); }}>Load Single-Subnet</button>
             <button onClick={() => { loadDemoSixHost(); setOpenMenu(null); }}>Load 6-Host Demo</button>
             <button onClick={() => { loadDemoAttack(); setOpenMenu(null); }}>Load Ooda Attack </button>
+            <button onClick={() => { loadDemoPentestGpt(); setOpenMenu(null); }}>Load PentestGPT Attack</button>
 
           </div>
         )}
@@ -957,7 +1040,7 @@ return (
         <div className="Canvas">
         {/*This part is mostly repsosnable for the drag and drop functionality on canves with React Flow*/}
         <ReactFlow nodes={nodes}  
-        onNodesChange={(changes) => setActiveNodes((nds) => applyNodeChanges(changes, nds))} 
+        onNodesChange={(changes) => setActiveNodes((nds) => snapCradlesToMeasured(changes, applyNodeChanges(changes, nds)))}
         edges={edges.map(styleEdge)}
         nodeTypes={{Host: HostNode,
                     Subnet: AllNodes,
@@ -972,14 +1055,10 @@ return (
                     Choice:    AttackerNode,
                     Human:     AttackerNode,
                     LLM:       AttackerNode,
-                    Algorithm: AttackerNode,
                     DataFile:  AttackerNode,
-                    Library:   AttackerNode,
-                    Module:    AttackerNode, 
-                    Condition: AttackerNode,
                     Parameter: AttackerNode,
                     Action:    AttackerNode,
-                    Executor:  AttackerNode, 
+                    Executor:  AttackerNode,
         }}
         defaultEdgeOptions={{type: 'step'}}
         isValidConnection={(connection)=> {

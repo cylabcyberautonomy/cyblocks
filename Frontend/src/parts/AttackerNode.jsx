@@ -11,14 +11,12 @@ import { Handle, Position, useUpdateNodeInternals } from '@xyflow/react';
 //   dataIn = data-in (left circle)         dataOut = data-out (right circle)
 const PORTS = {
   Start:     { cfIn: false, cfOut: ["next"], dataIn: false, dataOut: false },
-  Stop:      { cfIn: true,  cfOut: [],        dataIn: false, dataOut: false },//no next blcok  to go to 
-  Condition: { cfIn: true,  cfOut: [],  dataIn: true,  dataOut: false, branch: ["goal_reached", "continue"] },
+  Stop:      { cfIn: true,  cfOut: [],        dataIn: false, dataOut: false },//no next blcok  to go to
   Choice:   { cfIn: false, cfOut: [], dataIn: true, dataOut: false, dataInPos: "bottom", cradle: true },
   LLM:   { cfIn: true, cfOut: ["next","done","override","suggest"], dataIn: true, dataOut: true, paramIn: true },
   Human: { cfIn: true, cfOut: ["next","done","override","suggest"], dataIn: true, dataOut: true },
   DataFile:  { cfIn: false, cfOut: [],         dataIn: true,  dataOut: true  },
   Parameter: { cfIn: false, cfOut: [],         dataIn: false, dataOut: true  },
-  Algorithm: { cfIn: true, cfOut: ["next"], dataIn: true, dataOut: true, paramIn: true },
   Action:   { cfIn: false, cfOut: [], dataIn: false, dataOut: true, dataOutPos: "top" },
   Executor: { cfIn: true,  cfOut: ["next"], dataIn: true, dataOut: true }
 };
@@ -194,20 +192,6 @@ const AttackerNode = ({id, data }) => {
     </>
   );
 })()}
-            {(spec.branch || []).map((label, i) => {
-              const left = `${((i + 1) / (spec.branch.length + 1)) * 100}%`;
-              return (
-                <div key={label}>
-                  <Handle id={`cf-out-${label}`} type="source" position={Position.Bottom}
-                    style={{ ...handleBase, left,
-                      clipPath: "polygon(50% 100%, 0% 0%, 100% 0%)", borderRadius: 0 }} />
-                  <span style={{ position: "absolute", bottom: 6, left,
-                    transform: "translateX(-50%)", fontSize: 6, lineHeight: 1,
-                    color: textColor, opacity: 0.7, whiteSpace: "nowrap",
-                    pointerEvents: "none" }}>{label}</span>
-                </div>
-              );
-            })}
             {spec.dataIn && !seated && (
               <Handle id="data-in" type="target"
                 position={spec.dataInPos === "bottom" ? Position.Bottom : Position.Left}

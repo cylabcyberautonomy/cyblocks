@@ -35,7 +35,9 @@ class DataFile(Block):#this is the shared data structure that holds the PTT and 
         self.transcript = []      # list of {"role": "...", "text": "..."} turns appended in order
         self.findings = []        # confirmed loot kept OUTSIDE the transcript window (survives render_tail)
         self.command = None       # Choice of command is saved here --> the constructed command here for the Executor to pop
+        self.command_task_id = None  # ptt-mode only: which PTT leaf this command is for (stays None in text mode)
         self.done = False         # LLM should setb this to True when it emits DONE so our Condition/Stop can reads it
+        self.human_note = None    # a pending {"kind": "override"|"suggest", "text": ...} from the Reviewer, for whichever agent runs next to read once (Reasoning, by graph construction)
 
     #text mode helpers 
 
@@ -58,16 +60,29 @@ class DataFile(Block):#this is the shared data structure that holds the PTT and 
             lines.append(f"[{turn['role']}]\n{turn['text']}")
         return "\n\n".join(lines)
 
-    #this helper function handels the hand off between the choice and executor 
+    #this helper function handels the hand off between the choice and executor
     #
-    def set_command(self, command):
-        # Choice send the validated command here
+    def set_command(self, command, task_id=None):
+        # Choice send the validated command here (task_id: ptt-mode only, None in text mode)
         self.command = command
+        self.command_task_id = task_id
     #Executor pops teh command  via take_command()
     def take_command(self):
         # Executor reads and clears (so thesre is no repeated command run)
         cmd, self.command = self.command, None
-        return cmd
+        task_id, self.command_task_id = self.command_task_id, None
+        return cmd, task_id
+
+    # Reviewer stashes an override/suggest note here; whichever agent runs next pops it once via
+    # take_human_note() so it's never applied twice.
+    def set_human_note(self, kind, text):
+        text = (text or "").strip()
+        if text:
+            self.human_note = {"kind": kind, "text": text}
+
+    def take_human_note(self):
+        note, self.human_note = self.human_note, None
+        return note
 
 
 # we need to be able to find a node by id because the LLM will return a node id and we need to find that node in the PTT to update its status or result
