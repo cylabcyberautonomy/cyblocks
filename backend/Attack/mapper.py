@@ -14,14 +14,6 @@ def name_to_block_init(id, name, properties=None):
             return Choice(id, name, properties)
         case "DataFile":
             return DataFile(id, name, properties)
-        case "Algorithm":
-            return Algorithm(id, name, properties)
-        case "Library":
-            return Library(id, name, properties)
-        case "Module":
-            return Module(id, name, properties)
-        case "Condition":
-            return Condition(id, name, properties)
         case "Parameter":
             return Parameter(id, name, properties)
         case "Action":   
