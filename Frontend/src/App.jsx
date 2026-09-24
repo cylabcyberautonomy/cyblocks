@@ -7,7 +7,7 @@ import HostNode from './parts/HostNode';
 import AllNodes from './parts/AllNodes';
 import AttackerNode from './parts/AttackerNode'
 import { ENV_STYLES } from './parts/blockTheme';
-import { demoThreeSubnet, demoSingleSubnet, demoSixHost, demoOodaAttack, demoPentestGptAttack } from './parts/demos';
+import { demoThreeSubnet, demoSingleSubnet, demoSixHost, demoMiniIncalmoAttack, demoPentestGptAttack } from './parts/demos';
 
 //Buidling a simple UI for the app, with a tapbar, sidebar and main canves
 //This is just a placeholder for now, we will add more functionality later
@@ -706,7 +706,7 @@ const applyDemo = ({ nodes, edges }) => {
 const loadDemoEnvironment  = () => applyDemo(demoThreeSubnet({ makeLabel }));
 const loadDemoSingleSubnet = () => applyDemo(demoSingleSubnet({ makeLabel }));
 const loadDemoSixHost      = () => applyDemo(demoSixHost({ makeLabel }));
-const loadDemoAttack       = () => applyDemo(demoOodaAttack({ attackerBlockStyles, attackerBlockProperties, AGENT_CF, toggleCfOut }));
+const loadDemoAttack       = () => applyDemo(demoMiniIncalmoAttack({ attackerBlockStyles, attackerBlockProperties, AGENT_CF, toggleCfOut }));
 const loadDemoPentestGpt   = () => applyDemo(demoPentestGptAttack({ attackerBlockStyles, attackerBlockProperties, AGENT_CF, toggleCfOut }));
 
 
@@ -996,7 +996,7 @@ return (
             <button onClick={() => { loadDemoEnvironment(); setOpenMenu(null); }}>Load 3-subnet Demo</button>
             <button onClick={() => { loadDemoSingleSubnet(); setOpenMenu(null); }}>Load Single-Subnet</button>
             <button onClick={() => { loadDemoSixHost(); setOpenMenu(null); }}>Load 6-Host Demo</button>
-            <button onClick={() => { loadDemoAttack(); setOpenMenu(null); }}>Load Ooda Attack </button>
+            <button onClick={() => { loadDemoAttack(); setOpenMenu(null); }}>Load mini-incalmo Attack </button>
             <button onClick={() => { loadDemoPentestGpt(); setOpenMenu(null); }}>Load PentestGPT Attack</button>
 
           </div>

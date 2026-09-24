@@ -207,7 +207,7 @@ export const demoSixHost = ({ makeLabel }) => {
 
 // Attacker demo: rebuilds the ReasonAct/OODA single-agent loop from the exported contract
 // Reuses the real block UUIDs so buildAttack() returns a contract identical to the export
-export const demoOodaAttack = ({ attackerBlockStyles, attackerBlockProperties, AGENT_CF, toggleCfOut }) => {
+export const demoMiniIncalmoAttack = ({ attackerBlockStyles, attackerBlockProperties, AGENT_CF, toggleCfOut }) => {
   // Build a node exactly the way onDrop does, so schema/handles line up.
   const mkNode = (id, name, position, props = {}, opts = {}) => {
     const aStyle = attackerBlockStyles[name];
@@ -313,7 +313,7 @@ export const demoOodaAttack = ({ attackerBlockStyles, attackerBlockProperties, A
 // PentestGPT-style demo: Parsing -> Reasoning -> {done: Stop, next: human Reviewer
 // (continue/suggest/override)} -> Generation -> Executor -> loop back to Parsing. Full ptt-mode
 // multi-agent flow with a human goal-setting step at the start and a human review checkpoint
-// mid-loop, matching the real PentestGPT architecture (as opposed to demoOodaAttack's single-agent
+// mid-loop, matching the real PentestGPT architecture (as opposed to demoMiniIncalmoAttack's single-agent
 // text-mode ReasonAct loop). The Reasoning agent decides goal_reached itself (from the "STATUS g1 |
 // done" it already emits) and hands control straight to Stop via the same done/next cf-out labels
 // LLM blocks already use elsewhere -- there is no separate Condition block.
