@@ -30,7 +30,7 @@ API SPEC
 
   Any handler error -> 500 {"error": str, "traceback": str}.
 
-Run:  PYTHONPATH=src python3 -m backend.api     (listens on http://127.0.0.1:8000)
+Run:  uv run python -m backend.api     (listens on http://127.0.0.1:8000)
 """
 import json
 import traceback
@@ -54,7 +54,6 @@ import subprocess, threading, uuid #so we can run our attack right away from sta
 
 import sys, os
 _MAIN_PY = common.REPO_ROOT / "runs" / "attack" / "main.py"
-_SRC     = common.REPO_ROOT / "src"
 _jobs = {}#the memory of all our runs 
 _jobs_lock = threading.Lock()#to prevent two thred from running at the same time 
 
@@ -63,10 +62,10 @@ HOST, PORT = "127.0.0.1", 8000
 
 
 def _stream_attack(job_id: str) -> None:
-    env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONPATH=str(_SRC))#rather than printing the output we copy the env and give it to the child process
+    env = dict(os.environ, PYTHONUNBUFFERED="1")#rather than printing the output we copy the env and give it to the child process
     #we execute main.py here
-    #we run the compiled runs/attack/main.py with src/ on PYTHONPATH but
-    #[RUN]/[FOUND] lines arrive live instead of all at the end(arroives at our window)
+    #we run the compiled runs/attack/main.py with this interpreter (the venv that has
+    #backend installed) but [RUN]/[FOUND] lines arrive live instead of all at the end
     # stdin is piped so /attack-input can answer a Human(Reviewer) block's AWAITING INPUT prompt --
     # it has a timeout on its side, so an unanswered prompt still won't hang the run.
     proc = subprocess.Popen(

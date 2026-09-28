@@ -1,0 +1,12 @@
+[project]
+name = "cyblocks"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["python-dotenv", "certifi", "pyyaml"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/backend"]

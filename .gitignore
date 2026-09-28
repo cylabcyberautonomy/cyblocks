@@ -9,6 +9,10 @@ __pycache__/
 __pycache__/
 .env
 
+# uv-managed virtualenv (uv.lock IS tracked -- this is an app, not a library)
+.venv/
+
 #not part of the app
 src/frontend/my-react-app/
 
+claude_changelog.txt

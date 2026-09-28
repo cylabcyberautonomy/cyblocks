@@ -90,5 +90,5 @@ Run Experiment), the generated script sits at `runs/attack/main.py` and can also
 directly, without the IDE or the API server, for debugging:
 
 ```
-PYTHONPATH=src python3 runs/attack/main.py
+uv run python runs/attack/main.py
 ```
