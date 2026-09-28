@@ -23,7 +23,7 @@ environments and attacker systems once the IDE is open, see
 ## 1. Install the frontend
 
 ```
-cd Frontend
+cd src/frontend
 npm install
 ```
 
@@ -36,12 +36,12 @@ pip install python-dotenv certifi --break-system-packages
 (Drop `--break-system-packages` on Windows/most non-Debian systems — it's only needed on
 externally-managed Linux Python installs.)
 
-Add whichever provider key(s) you have to a `.env` file inside `backend/Attack/`:
+Add whichever provider key(s) you have to a `.env` file at the repo root:
 
 ```
-printf 'ANTHROPIC_API_KEY=sk-ant-your-key\n' >> backend/Attack/.env
-printf 'OPENAI_API_KEY=sk-your-key\n'        >> backend/Attack/.env
-printf 'GOOGLE_API_KEY=your-key\n'           >> backend/Attack/.env
+printf 'ANTHROPIC_API_KEY=sk-ant-your-key\n' >> .env
+printf 'OPENAI_API_KEY=sk-your-key\n'        >> .env
+printf 'GOOGLE_API_KEY=your-key\n'           >> .env
 ```
 
 You don't need all three — only add the ones for the providers your `LLM` blocks are set to
@@ -50,8 +50,7 @@ use.
 ## 3. Start the backend API
 
 ```
-cd backend/scripts
-python3 api_backend.py
+PYTHONPATH=src python3 -m backend.api
 ```
 
 This listens on `http://127.0.0.1:8000`. It's a plain stdlib HTTP server (no framework) that
@@ -62,7 +61,7 @@ the IDE itself works without it, but deploy/run calls will fail.
 ## 4. Start the frontend
 
 ```
-cd Frontend
+cd src/frontend
 npm run dev
 ```
 
@@ -73,11 +72,16 @@ a working example of each.
 ## Project layout
 
 ```
-Frontend/            React + Vite + React Flow IDE (the app you actually work in)
-backend/
-  scripts/           HTTP API, environment compiler (flat env -> Docker Compose), deploy/quit
-  Attack/            Attack runtime: block classes, control/data flow engine, mapper
-                      that turns the IDE's attacker-canvas JSON into a runnable main.py
-documentation/        Guide to modeling environments and attacker systems in the IDE
+src/
+  frontend/          React + Vite + React Flow IDE (the app you actually work in)
+  backend/
+    api.py           HTTP API the IDE talks to
+    compiler/        flat env -> nested DSL -> Docker Compose build artifact
+    deploy/          Docker lifecycle: environment stack, attacker container, daemon
+    library/         service + vulnerability catalogs (JSON recipes + loaders)
+    attack/          Attack runtime: block classes, control/data flow engine, mapper
+                     that turns the IDE's attacker-canvas JSON into a runnable main.py
+documentation/       Guide to modeling environments and attacker systems in the IDE
+runs/                Generated: build artifacts, deploy logs, the compiled main.py
 ```
 

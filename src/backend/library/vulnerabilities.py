@@ -1,0 +1,122 @@
+# vulnerability_library.py
+# Registry of vulnerabilities: a simple name (used by the frontend + carried in the DSL) maps to
+# a recipe for realizing that vulnerability inside a container. The lookup happens at COMPILE time
+# (between DSL and deploy): compiler/render.py queries this library to turn each vuln name into
+# real Dockerfile lines, falling back to a marker file for unknown names.
+#
+# Recipes live in the sibling `vulnerabilities.json` data file (so non-Python folks can add vulns
+# without touching code); this module loads + registers them automatically at import time.
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable
+
+from backend import common
+from backend.compiler.types import Vulnerability
+
+
+@dataclass
+class VulnDef:
+    name: str
+    description: str
+    render_for: Callable[[Vulnerability], list[str]] = field(repr=False)
+    # render_for takes the vulnerability's parameters and returns a list of Dockerfile lines to
+    # realize that vuln. The renderer is responsible for error handling (eg missing params) and
+    # should raise if it can't render.
+    cve: str = ""        # shown in the frontend dropdown / auto-filled into the Vulnerability block
+    severity: str = ""
+    # RUNTIME launch commands. The Dockerfile `lines` only INSTALL the vuln at build time; a daemon
+    # (sshd, tomcat, ...) still has to be STARTED when the container boots or the vuln isn't live.
+    # `start` is that recipe -- shell commands the compiler injects into a bare-OS host's boot
+    # script (see compiler/hosts_routers._service_start_cmds). Best-effort (each ends in `|| true`)
+    # so a missing tool never blocks container start. Daemon base images (e.g. tomcat:*) run their
+    # service via the image CMD, so the compiler leaves their command alone and `start` is simply
+    # unused there -- keep it anyway for when the same vuln lands on a bare-OS host.
+    start: list[str] = field(default_factory=list)
+
+
+# The library itself: map from vuln name to VulnDef. The compiler looks up each vuln by name to get
+# the renderer, which turns the vuln's params into Dockerfile lines that get emitted into the
+# host's service definition.
+LIBRARY: dict[str, VulnDef] = {}
+
+
+def register_vulnerability(vuln_def: VulnDef):
+    if vuln_def.name in LIBRARY:
+        raise ValueError(f"Vulnerability {vuln_def.name} is already registered.")
+    LIBRARY[vuln_def.name] = vuln_def
+
+
+def get_vulnerability(name: str) -> VulnDef:
+    if name not in LIBRARY:
+        raise ValueError(f"Vulnerability {name} is not registered.")
+    return LIBRARY[name]
+
+
+def render_vulnerability(vuln: Vulnerability) -> list[str]:
+    vuln_def = get_vulnerability(vuln["name"])
+    return vuln_def.render_for(vuln)
+
+
+def start_cmds(name: str) -> list[str]:
+    # Runtime launch commands for a vuln by name (empty for unknown vulns or vulns that need no
+    # daemon kicked off). The compiler uses this to make a freshly-installed vuln actually LIVE.
+    vuln_def = LIBRARY.get(name)
+    return list(vuln_def.start) if vuln_def else []
+
+
+def list_vulnerabilities() -> list[dict[str, Any]]:
+    # For the frontend dropdown: name (the DSL key), plus cve/severity/description for auto-fill.
+    return [
+        {"name": v.name, "description": v.description, "cve": v.cve, "severity": v.severity}
+        for v in LIBRARY.values()
+    ]
+
+
+def render_for_host(vuln: Vulnerability) -> list[str]:
+    # The single entry point compiler/render.py calls per vuln on a host. Registered names get their
+    # real recipe; unknown names fall back to a marker file under /etc/cyblocks (legacy behavior),
+    # so an unrecognized vuln never breaks a build -- it just isn't "realized".
+    if vuln.get("name") in LIBRARY:
+        return render_vulnerability(vuln)
+    tag = vuln.get("cve") or vuln.get("name") or "unknown"
+    return [f"RUN mkdir -p /etc/cyblocks && echo '{tag}' >> /etc/cyblocks/vulnerabilities"]
+
+
+# ---------------------------------------------------------------------------
+# Load the data-file recipes (vulnerabilities.json) and register them.
+#   Each JSON entry: {name, cve?, severity?, description, lines[]}. The "lines" are the Dockerfile
+#   lines that stand up the vuln; we auto-append a marker file so every realized vuln is recorded
+#   under /etc/cyblocks/vulnerabilities (tag = the vuln's cve, else the entry's cve, else its name).
+# ---------------------------------------------------------------------------
+VULN_DATA_PATH = Path(__file__).with_name("vulnerabilities.json")
+
+
+def _make_render(entry: dict[str, Any]) -> Callable[[Vulnerability], list[str]]:
+    lines = list(entry.get("lines", []))
+    default_cve = entry.get("cve") or ""
+
+    def render_for(vuln: Vulnerability) -> list[str]:
+        tag = vuln.get("cve") or default_cve or vuln.get("name") or entry["name"]
+        return lines + [f"RUN mkdir -p /etc/cyblocks && echo '{tag}' >> /etc/cyblocks/vulnerabilities"]
+
+    return render_for
+
+
+def load_library(path: Path = VULN_DATA_PATH) -> None:
+    # Idempotent-ish: skips names already registered so a re-import / double call doesn't raise.
+    data = common.load_json(path)
+    for entry in data.get("vulnerabilities", []):
+        if entry["name"] in LIBRARY:
+            continue
+        register_vulnerability(VulnDef(
+            name=entry["name"],
+            description=entry.get("description", ""),
+            render_for=_make_render(entry),
+            cve=entry.get("cve", ""),
+            severity=entry.get("severity", ""),
+            start=list(entry.get("start", [])),
+        ))
+
+
+load_library()

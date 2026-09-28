@@ -7,7 +7,7 @@ attack against a deployed environment.
 ## Attacker canvas
 
 An attacker system is a graph of agents and control logic that compiles to a runnable Python
-script (`backend/Attack/main.py`).
+script (`runs/attack/main.py`).
 
 **Blocks:**
 
@@ -70,7 +70,7 @@ An environment is a network of deployed Docker containers.
 
 The `Host` node has five color-coded handles (one per connectable type) so you can see at a
 glance what's wired to it. `Service` and `Vulnerability` name fields autocomplete from the
-backend's service/vulnerability library (`backend/scripts/services.json` /
+backend's service/vulnerability library (`src/backend/library/services.json` /
 `vulnerabilities.json`) — picking a known entry auto-fills the rest of its properties.
 
 **Running it:**
@@ -86,10 +86,9 @@ backend's service/vulnerability library (`backend/scripts/services.json` /
 pick an Environment tab and an Attacker tab, then **Run** does the environment deployment, compilation of the attacker flow, launch it and stream it to the terminal.
 
 Once an attacker flow has been compiled (either via **Compile → Compile Attack**, or as part of
-Run Experiment), the generated script sits at `backend/Attack/main.py` and can also be run
+Run Experiment), the generated script sits at `runs/attack/main.py` and can also be run
 directly, without the IDE or the API server, for debugging:
 
 ```
-cd backend/Attack
-python3 main.py
+PYTHONPATH=src python3 runs/attack/main.py
 ```
